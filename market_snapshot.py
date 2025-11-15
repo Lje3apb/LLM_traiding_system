@@ -233,11 +233,12 @@ def fetch_onchain_data(settings: Settings) -> Dict[str, Optional[float]]:
     # Try CoinMetrics if Blockchain.com didn't work
     if new_addresses_vs_30d is None or active_addresses_vs_30d is None:
         try:
-            # Fetch AdrNewCnt (new addresses) and AdrActCnt (active addresses)
+            # Fetch AdrActCnt (active addresses) and SplySenderExch (exchange supply)
+            # Note: AdrNewCnt removed due to API restrictions
             url = f"{settings.coinmetrics_base_url}/timeseries/asset-metrics"
             params = {
                 "assets": "btc",
-                "metrics": "AdrActCnt,AdrNewCnt,SplySenderExch",
+                "metrics": "AdrActCnt,SplySenderExch",
                 "frequency": "1d",
                 "limit_per_asset": 31,  # Last 31 days
             }
@@ -250,24 +251,14 @@ def fetch_onchain_data(settings: Settings) -> Dict[str, Optional[float]]:
                 metrics_data = data["data"]
 
                 # Extract time series for each metric
-                adr_new_values: List[float] = []
                 adr_act_values: List[float] = []
                 sply_exch_values: List[float] = []
 
                 for item in metrics_data:
-                    if "AdrNewCnt" in item and item["AdrNewCnt"] is not None:
-                        adr_new_values.append(float(item["AdrNewCnt"]))
                     if "AdrActCnt" in item and item["AdrActCnt"] is not None:
                         adr_act_values.append(float(item["AdrActCnt"]))
                     if "SplySenderExch" in item and item["SplySenderExch"] is not None:
                         sply_exch_values.append(float(item["SplySenderExch"]))
-
-                # Compute new addresses vs 30d SMA
-                if len(adr_new_values) >= 30 and new_addresses_vs_30d is None:
-                    sma_30d_new = _compute_sma(adr_new_values[:-1], 30)
-                    today_new = adr_new_values[-1]
-                    if sma_30d_new and sma_30d_new > 0:
-                        new_addresses_vs_30d = (today_new - sma_30d_new) / sma_30d_new
 
                 # Compute active addresses vs 30d SMA
                 if len(adr_act_values) >= 30 and active_addresses_vs_30d is None:
@@ -340,6 +331,10 @@ def fetch_onchain_data(settings: Settings) -> Dict[str, Optional[float]]:
 
     # Whale transfers not available in free APIs - set to None
     whale_transfers = None
+
+    # Final fallback: if new_addresses_vs_30d still None, use active_addresses_vs_30d
+    if new_addresses_vs_30d is None and active_addresses_vs_30d is not None:
+        new_addresses_vs_30d = active_addresses_vs_30d
 
     return {
         "exchange_netflows_btc": exchange_netflows,
