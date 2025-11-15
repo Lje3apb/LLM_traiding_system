@@ -227,61 +227,7 @@ def fetch_onchain_data(settings: Settings) -> Dict[str, Optional[float]]:
         logging.error("Error processing Blockchain.com data: %s", exc)
 
     # =========================================================================
-    # 2. FALLBACK: COINMETRICS API FOR BTC METRICS
-    # =========================================================================
-
-    # Try CoinMetrics if Blockchain.com didn't work
-    if new_addresses_vs_30d is None or active_addresses_vs_30d is None:
-        try:
-            # Fetch AdrActCnt (active addresses) and SplySenderExch (exchange supply)
-            # Note: AdrNewCnt removed due to API restrictions
-            url = f"{settings.coinmetrics_base_url}/timeseries/asset-metrics"
-            params = {
-                "assets": "btc",
-                "metrics": "AdrActCnt,SplySenderExch",
-                "frequency": "1d",
-                "limit_per_asset": 31,  # Last 31 days
-            }
-
-            response = session.get(url, params=params, timeout=DEFAULT_TIMEOUT)
-            response.raise_for_status()
-            data = response.json()
-
-            if "data" in data and len(data["data"]) > 0:
-                metrics_data = data["data"]
-
-                # Extract time series for each metric
-                adr_act_values: List[float] = []
-                sply_exch_values: List[float] = []
-
-                for item in metrics_data:
-                    if "AdrActCnt" in item and item["AdrActCnt"] is not None:
-                        adr_act_values.append(float(item["AdrActCnt"]))
-                    if "SplySenderExch" in item and item["SplySenderExch"] is not None:
-                        sply_exch_values.append(float(item["SplySenderExch"]))
-
-                # Compute active addresses vs 30d SMA
-                if len(adr_act_values) >= 30 and active_addresses_vs_30d is None:
-                    sma_30d_act = _compute_sma(adr_act_values[:-1], 30)
-                    today_act = adr_act_values[-1]
-                    if sma_30d_act and sma_30d_act > 0:
-                        active_addresses_vs_30d = (today_act - sma_30d_act) / sma_30d_act
-
-                # Exchange supply proxy (if available, compute recent change)
-                if len(sply_exch_values) >= 2:
-                    # Simple proxy: recent change in exchange supply
-                    exchange_netflows = sply_exch_values[-1] - sply_exch_values[-2]
-
-                if active_addresses_vs_30d is not None or new_addresses_vs_30d is not None:
-                    logging.info("Using CoinMetrics fallback for address metrics")
-
-        except requests.RequestException as exc:
-            logging.warning("Failed to fetch CoinMetrics BTC metrics: %s", exc)
-        except (KeyError, ValueError, IndexError) as exc:
-            logging.error("Error processing CoinMetrics data: %s", exc)
-
-    # =========================================================================
-    # 3. FETCH STABLECOIN SUPPLY FROM COINMETRICS
+    # 2. FETCH STABLECOIN SUPPLY FROM COINMETRICS
     # =========================================================================
 
     try:
