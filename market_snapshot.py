@@ -20,8 +20,8 @@ class Settings:
     horizon_hours: int
     binance_base_url: str
     binance_fapi_url: str
-    cryptoquant_api_key: Optional[str]
-    cryptoquant_base_url: str
+    coinmetrics_base_url: str
+    blockchain_com_base_url: str
     cryptopanic_api_key: Optional[str]
     cryptopanic_base_url: str
     newsapi_key: Optional[str]
@@ -156,114 +156,197 @@ def fetch_binance_market_data(settings: Settings, symbol: str) -> Dict[str, Opti
     }
 
 
-def _get_cryptoquant_endpoint(settings: Settings, path: str) -> str:
-    return f"{settings.cryptoquant_base_url.rstrip('/')}/{path.lstrip('/')}"
+def _compute_sma(values: List[float], window: int) -> Optional[float]:
+    """Compute simple moving average over a window."""
+    if len(values) < window:
+        return None
+    return sum(values[-window:]) / window
 
 
-def _fetch_cryptoquant_metric(session: requests.Session, url: str, api_key: str) -> Optional[Dict[str, Any]]:
-    try:
-        response = session.get(url, params={"api_key": api_key}, timeout=DEFAULT_TIMEOUT)
-        response.raise_for_status()
-        data = response.json()
-        return data
-    except requests.RequestException as exc:
-        logging.error("CryptoQuant request failed for %s: %s", url, exc)
-    except ValueError as exc:
-        logging.error("Invalid JSON from CryptoQuant for %s: %s", url, exc)
-    return None
+def fetch_onchain_data(settings: Settings) -> Dict[str, Optional[float]]:
+    """Retrieve on-chain signals from free APIs (CoinMetrics Community + Blockchain.com).
 
+    Uses:
+    - CoinMetrics Community API for BTC metrics (AdrActCnt, AdrNewCnt, SplyExch)
+    - CoinMetrics for stablecoin supply (USDT, USDC)
+    - Blockchain.com Charts API as fallback for address metrics
 
-def fetch_cryptoquant_onchain_data(settings: Settings) -> Dict[str, Optional[float]]:
-    """Retrieve on-chain signals from CryptoQuant's public endpoints."""
-
-    if not settings.cryptoquant_api_key:
-        logging.warning("CRYPTOQUANT_API_KEY is missing; returning placeholder on-chain data.")
-        return {
-            "exchange_netflows_btc": None,
-            "whale_transfers": None,
-            "new_addresses_vs_30d": None,
-            "active_addresses_vs_30d": None,
-            "stablecoin_supply_change_pct": None,
-        }
-
+    Returns:
+        dict with keys:
+            - exchange_netflows_btc: Optional[float]
+            - whale_transfers: Optional[int] (always None for now)
+            - new_addresses_vs_30d: Optional[float]
+            - active_addresses_vs_30d: Optional[float]
+            - stablecoin_supply_change_pct: Optional[float]
+    """
     session = requests.Session()
+
+    # Initialize all metrics
     exchange_netflows: Optional[float] = None
     whale_transfers: Optional[int] = None
-    new_addresses: Optional[float] = None
-    active_addresses: Optional[float] = None
-    stablecoin_supply_change: Optional[float] = None
+    new_addresses_vs_30d: Optional[float] = None
+    active_addresses_vs_30d: Optional[float] = None
+    stablecoin_supply_change_pct: Optional[float] = None
 
-    # The following endpoints are representative; replace with actual ones when integrating.
-    exchange_netflow_url = _get_cryptoquant_endpoint(
-        settings, "btc/exchange-flows/netflow"
-    )
-    whale_transfers_url = _get_cryptoquant_endpoint(
-        settings, "btc/whale-tracking/whales-transfers"
-    )
-    new_addresses_url = _get_cryptoquant_endpoint(
-        settings, "btc/network/new-addresses"
-    )
-    active_addresses_url = _get_cryptoquant_endpoint(
-        settings, "btc/network/active-addresses"
-    )
-    stablecoin_supply_url = _get_cryptoquant_endpoint(
-        settings, "stablecoin/marketcap/all-exchanges"
-    )
+    # =========================================================================
+    # 1. PRIMARY: BLOCKCHAIN.COM CHARTS API FOR ADDRESS METRICS
+    # =========================================================================
+
+    # Use Blockchain.com as primary source - it's consistently accessible
+    try:
+        url = f"{settings.blockchain_com_base_url}/charts/n-unique-addresses"
+        params = {
+            "timespan": "30days",
+            "format": "json",
+            "sampled": "false",
+        }
+
+        response = session.get(url, params=params, timeout=DEFAULT_TIMEOUT)
+        response.raise_for_status()
+        data = response.json()
+
+        if "values" in data and len(data["values"]) > 0:
+            values = [float(item["y"]) for item in data["values"]]
+
+            # Compute active addresses vs 30d SMA
+            if len(values) >= 30:
+                sma_30d = _compute_sma(values[:-1], min(30, len(values) - 1))
+                today = values[-1]
+                if sma_30d and sma_30d > 0:
+                    active_addresses_vs_30d = (today - sma_30d) / sma_30d
+                    # Use same value for new addresses as approximation
+                    new_addresses_vs_30d = active_addresses_vs_30d
+                    logging.info(
+                        "Fetched address metrics from Blockchain.com: %+.2f%%",
+                        active_addresses_vs_30d * 100
+                    )
+
+    except requests.RequestException as exc:
+        logging.warning("Failed to fetch Blockchain.com Charts data: %s", exc)
+    except (KeyError, ValueError, IndexError) as exc:
+        logging.error("Error processing Blockchain.com data: %s", exc)
+
+    # =========================================================================
+    # 2. FALLBACK: COINMETRICS API FOR BTC METRICS
+    # =========================================================================
+
+    # Try CoinMetrics if Blockchain.com didn't work
+    if new_addresses_vs_30d is None or active_addresses_vs_30d is None:
+        try:
+            # Fetch AdrNewCnt (new addresses) and AdrActCnt (active addresses)
+            url = f"{settings.coinmetrics_base_url}/timeseries/asset-metrics"
+            params = {
+                "assets": "btc",
+                "metrics": "AdrActCnt,AdrNewCnt,SplySenderExch",
+                "frequency": "1d",
+                "limit_per_asset": 31,  # Last 31 days
+            }
+
+            response = session.get(url, params=params, timeout=DEFAULT_TIMEOUT)
+            response.raise_for_status()
+            data = response.json()
+
+            if "data" in data and len(data["data"]) > 0:
+                metrics_data = data["data"]
+
+                # Extract time series for each metric
+                adr_new_values: List[float] = []
+                adr_act_values: List[float] = []
+                sply_exch_values: List[float] = []
+
+                for item in metrics_data:
+                    if "AdrNewCnt" in item and item["AdrNewCnt"] is not None:
+                        adr_new_values.append(float(item["AdrNewCnt"]))
+                    if "AdrActCnt" in item and item["AdrActCnt"] is not None:
+                        adr_act_values.append(float(item["AdrActCnt"]))
+                    if "SplySenderExch" in item and item["SplySenderExch"] is not None:
+                        sply_exch_values.append(float(item["SplySenderExch"]))
+
+                # Compute new addresses vs 30d SMA
+                if len(adr_new_values) >= 30 and new_addresses_vs_30d is None:
+                    sma_30d_new = _compute_sma(adr_new_values[:-1], 30)
+                    today_new = adr_new_values[-1]
+                    if sma_30d_new and sma_30d_new > 0:
+                        new_addresses_vs_30d = (today_new - sma_30d_new) / sma_30d_new
+
+                # Compute active addresses vs 30d SMA
+                if len(adr_act_values) >= 30 and active_addresses_vs_30d is None:
+                    sma_30d_act = _compute_sma(adr_act_values[:-1], 30)
+                    today_act = adr_act_values[-1]
+                    if sma_30d_act and sma_30d_act > 0:
+                        active_addresses_vs_30d = (today_act - sma_30d_act) / sma_30d_act
+
+                # Exchange supply proxy (if available, compute recent change)
+                if len(sply_exch_values) >= 2:
+                    # Simple proxy: recent change in exchange supply
+                    exchange_netflows = sply_exch_values[-1] - sply_exch_values[-2]
+
+                if active_addresses_vs_30d is not None or new_addresses_vs_30d is not None:
+                    logging.info("Using CoinMetrics fallback for address metrics")
+
+        except requests.RequestException as exc:
+            logging.warning("Failed to fetch CoinMetrics BTC metrics: %s", exc)
+        except (KeyError, ValueError, IndexError) as exc:
+            logging.error("Error processing CoinMetrics data: %s", exc)
+
+    # =========================================================================
+    # 3. FETCH STABLECOIN SUPPLY FROM COINMETRICS
+    # =========================================================================
 
     try:
-        netflow_data = _fetch_cryptoquant_metric(
-            session, exchange_netflow_url, settings.cryptoquant_api_key
-        )
-        if netflow_data and "result" in netflow_data:
-            latest = netflow_data["result"][-1]
-            exchange_netflows = _safe_float(latest.get("value"))
-    except (IndexError, KeyError, TypeError):
-        logging.error("Unexpected structure for exchange netflows data.")
+        # Fetch USDT and USDC supply for last 2 days to compute 1-day change
+        url = f"{settings.coinmetrics_base_url}/timeseries/asset-metrics"
+        params = {
+            "assets": "usdt,usdc",
+            "metrics": "SplyCur",
+            "frequency": "1d",
+            "limit_per_asset": 2,
+        }
 
-    try:
-        whale_data = _fetch_cryptoquant_metric(
-            session, whale_transfers_url, settings.cryptoquant_api_key
-        )
-        if whale_data and "result" in whale_data:
-            latest = whale_data["result"][-1]
-            whale_transfers = latest.get("count")
-            if whale_transfers is not None:
-                whale_transfers = int(whale_transfers)
-    except (IndexError, KeyError, TypeError, ValueError):
-        logging.error("Unexpected structure for whale transfers data.")
+        response = session.get(url, params=params, timeout=DEFAULT_TIMEOUT)
+        response.raise_for_status()
+        data = response.json()
 
-    try:
-        new_addresses_data = _fetch_cryptoquant_metric(
-            session, new_addresses_url, settings.cryptoquant_api_key
-        )
-        active_addresses_data = _fetch_cryptoquant_metric(
-            session, active_addresses_url, settings.cryptoquant_api_key
-        )
-        if new_addresses_data and "result" in new_addresses_data:
-            latest = new_addresses_data["result"][-1]
-            new_addresses = _safe_float(latest.get("value_change_rate"))
-        if active_addresses_data and "result" in active_addresses_data:
-            latest = active_addresses_data["result"][-1]
-            active_addresses = _safe_float(latest.get("value_change_rate"))
-    except (IndexError, KeyError, TypeError):
-        logging.error("Unexpected structure for address metrics data.")
+        if "data" in data and len(data["data"]) > 0:
+            # Group by asset
+            usdt_values: List[float] = []
+            usdc_values: List[float] = []
 
-    try:
-        stablecoin_data = _fetch_cryptoquant_metric(
-            session, stablecoin_supply_url, settings.cryptoquant_api_key
-        )
-        if stablecoin_data and "result" in stablecoin_data:
-            latest = stablecoin_data["result"][-1]
-            stablecoin_supply_change = _safe_float(latest.get("value_change_rate"))
-    except (IndexError, KeyError, TypeError):
-        logging.error("Unexpected structure for stablecoin data.")
+            for item in data["data"]:
+                asset = item.get("asset", "").lower()
+                sply_cur = item.get("SplyCur")
+
+                if sply_cur is not None:
+                    value = float(sply_cur)
+                    if asset == "usdt":
+                        usdt_values.append(value)
+                    elif asset == "usdc":
+                        usdc_values.append(value)
+
+            # Compute total stablecoin supply change
+            if len(usdt_values) >= 2 and len(usdc_values) >= 2:
+                total_yesterday = usdt_values[0] + usdc_values[0]
+                total_today = usdt_values[-1] + usdc_values[-1]
+
+                if total_yesterday > 0:
+                    stablecoin_supply_change_pct = (
+                        (total_today - total_yesterday) / total_yesterday
+                    )
+
+    except requests.RequestException as exc:
+        logging.error("Failed to fetch CoinMetrics stablecoin data: %s", exc)
+    except (KeyError, ValueError, IndexError) as exc:
+        logging.error("Error processing stablecoin data: %s", exc)
+
+    # Whale transfers not available in free APIs - set to None
+    whale_transfers = None
 
     return {
         "exchange_netflows_btc": exchange_netflows,
         "whale_transfers": whale_transfers,
-        "new_addresses_vs_30d": new_addresses,
-        "active_addresses_vs_30d": active_addresses,
-        "stablecoin_supply_change_pct": stablecoin_supply_change,
+        "new_addresses_vs_30d": new_addresses_vs_30d,
+        "active_addresses_vs_30d": active_addresses_vs_30d,
+        "stablecoin_supply_change_pct": stablecoin_supply_change_pct,
     }
 
 
@@ -401,7 +484,7 @@ def build_market_snapshot(settings: Settings) -> Dict[str, Any]:
 
     timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     market = fetch_binance_market_data(settings, settings.base_asset)
-    onchain = fetch_cryptoquant_onchain_data(settings)
+    onchain = fetch_onchain_data(settings)
     news_items = fetch_cryptopanic_news(settings)
     news_items.extend(fetch_newsapi_news(settings))
 
@@ -589,8 +672,12 @@ def load_settings() -> Settings:
         horizon_hours=int(os.getenv("HORIZON_HOURS", "4")),
         binance_base_url=os.getenv("BINANCE_BASE_URL", "https://api.binance.com"),
         binance_fapi_url=os.getenv("BINANCE_FAPI_URL", "https://fapi.binance.com"),
-        cryptoquant_api_key=os.getenv("CRYPTOQUANT_API_KEY"),
-        cryptoquant_base_url=os.getenv("CRYPTOQUANT_BASE_URL", "https://api.cryptoquant.com/v1"),
+        coinmetrics_base_url=os.getenv(
+            "COINMETRICS_BASE_URL", "https://community-api.coinmetrics.io/v4"
+        ),
+        blockchain_com_base_url=os.getenv(
+            "BLOCKCHAIN_COM_BASE_URL", "https://api.blockchain.info"
+        ),
         cryptopanic_api_key=os.getenv("CRYPTOPANIC_API_KEY"),
         cryptopanic_base_url=os.getenv("CRYPTOPANIC_BASE_URL", "https://cryptopanic.com/api/v1"),
         newsapi_key=os.getenv("NEWSAPI_KEY"),
