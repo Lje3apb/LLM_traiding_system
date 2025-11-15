@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  llm-trading:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: llm-trading-system
+    env_file:
+      - .env
+    volumes:
+      # Mount code for development (comment out for production)
+      - .:/app
+    # Restart policy
+    restart: unless-stopped
+    # Resource limits (optional, adjust as needed)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    # Default command - can be overridden
+    command: python position_sizing.py
+
+  # Service for running tests
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: llm-trading-test
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    command: python -m unittest discover -s . -p "test_*.py" -v
+    profiles:
+      - test
+
+  # Service for running market snapshot
+  market-snapshot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: llm-market-snapshot
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    command: python market_snapshot.py
+    profiles:
+      - market
