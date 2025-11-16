@@ -31,9 +31,10 @@ def check_imports():
     print("-" * 60)
 
     project_modules = [
-        ("llm_infra", "LLM infrastructure package"),
-        ("position_sizing", "Position sizing module"),
-        ("market_snapshot", "Market data collection module"),
+        ("llm_trading_system", "LLM Trading System package"),
+        ("llm_trading_system.core.market_snapshot", "Market data collection module"),
+        ("llm_trading_system.core.position_sizing", "Position sizing module"),
+        ("llm_trading_system.infra.llm_infra", "LLM infrastructure package"),
     ]
 
     for module_name, description in project_modules:

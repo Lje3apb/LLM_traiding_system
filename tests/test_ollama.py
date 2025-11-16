@@ -2,6 +2,11 @@
 """Test script for llm_infra package with Ollama."""
 
 import sys
+
+try:  # pragma: no cover
+    from . import _test_support  # type: ignore  # noqa: F401
+except ImportError:  # pragma: no cover
+    import _test_support  # type: ignore  # noqa: F401
 from llm_trading_system.infra.llm_infra import OllamaProvider, LLMClientSync, RetryPolicy
 
 def main():
