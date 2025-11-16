@@ -1,6 +1,8 @@
 import json
 from typing import Any, Dict
 
+import pytest
+
 from llm_trading_system.core.regime_engine import evaluate_regime_and_size
 
 
