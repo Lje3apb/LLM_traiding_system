@@ -5,6 +5,10 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
+try:  # pragma: no cover - import helper for script/pytest modes
+    from . import _test_support  # type: ignore  # noqa: F401
+except ImportError:  # pragma: no cover
+    import _test_support  # type: ignore  # noqa: F401
 from llm_trading_system.core.position_sizing import clamp, compute_position_multipliers, safe_get_score
 
 
