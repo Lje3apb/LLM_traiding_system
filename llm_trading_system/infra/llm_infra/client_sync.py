@@ -1,9 +1,9 @@
 """Synchronous high-level LLM client with retry and compression."""
 
 from typing import List, Optional
-from llm_infra.types import LLMProvider
-from llm_infra.retry import RetryPolicy
-from llm_infra.compressor import PromptCompressor
+from .types import LLMProvider
+from .retry import RetryPolicy
+from .compressor import PromptCompressor
 
 
 class LLMClientSync:
