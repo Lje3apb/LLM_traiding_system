@@ -1,6 +1,10 @@
 # Core dependencies
 requests==2.32.3
 
+# API dependencies
+fastapi==0.115.0
+uvicorn==0.32.0
+
 # Testing (required for running tests)
 pytest==8.3.3
 

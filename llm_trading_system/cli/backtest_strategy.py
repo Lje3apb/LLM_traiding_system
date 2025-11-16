@@ -8,11 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from llm_trading_system.engine.backtester import Backtester
-from llm_trading_system.engine.data_feed import CSVDataFeed
-from llm_trading_system.infra.llm_infra import LLMClientSync, OllamaProvider, RetryPolicy
-from llm_trading_system.strategies import create_strategy_from_config
-from llm_trading_system.strategies.modes import StrategyMode
+from llm_trading_system.engine.backtest_service import run_backtest_from_config_dict
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -44,75 +40,23 @@ def load_config(config_path: Path) -> dict[str, Any]:
         return json.load(f)
 
 
-def create_llm_client(
-    model: str = "llama3.2",
-    ollama_url: str = "http://localhost:11434",
-) -> LLMClientSync:
-    """Create LLM client for strategies that need it.
-
-    Args:
-        model: Model name to use
-        ollama_url: Ollama server URL
-
-    Returns:
-        LLM client instance
-    """
-    provider = OllamaProvider(model=model, base_url=ollama_url, timeout=120)
-    retry_policy = RetryPolicy(max_retries=3, initial_delay=1.0, max_delay=10.0)
-    return LLMClientSync(provider=provider, retry_policy=retry_policy)
-
-
-def compute_metrics(result) -> dict[str, Any]:
-    """Compute performance metrics from backtest result.
-
-    Args:
-        result: BacktestResult from backtester
-
-    Returns:
-        Dictionary of metrics
-    """
-    # Calculate win rate
-    if len(result.trades) > 0:
-        winning_trades = sum(1 for t in result.trades if t.pnl and t.pnl > 0)
-        win_rate = (winning_trades / len(result.trades)) * 100
-    else:
-        win_rate = 0.0
-
-    # Calculate average trade P&L
-    if len(result.trades) > 0:
-        avg_trade_pnl = sum(t.pnl or 0 for t in result.trades) / len(result.trades)
-    else:
-        avg_trade_pnl = 0.0
-
-    return {
-        "total_return_pct": result.total_return * 100,
-        "max_drawdown_pct": result.max_drawdown * 100,
-        "num_trades": len(result.trades),
-        "win_rate_pct": win_rate,
-        "avg_trade_pnl": avg_trade_pnl,
-        "final_equity": result.final_equity,
-        "num_bars": len(result.equity_curve),
-    }
-
-
-def print_results(metrics: dict[str, Any], symbol: str) -> None:
+def print_results(summary: dict[str, Any]) -> None:
     """Print backtest results in a readable format.
 
     Args:
-        metrics: Dictionary of performance metrics
-        symbol: Trading symbol
+        summary: Dictionary of backtest results from service
     """
     print("\n" + "=" * 60)
     print("BACKTEST RESULTS")
     print("=" * 60)
-    print(f"Symbol:          {symbol}")
-    print(f"Bars:            {metrics['num_bars']}")
-    print(f"Trades:          {metrics['num_trades']}")
-    print(f"P&L:             {metrics['total_return_pct']:+.2f}%")
-    print(f"Max Drawdown:    {metrics['max_drawdown_pct']:.2f}%")
-    print(f"Win Rate:        {metrics['win_rate_pct']:.1f}%")
-    print(f"Avg Trade P&L:   ${metrics['avg_trade_pnl']:.2f}")
-    print(f"Final Equity:    ${metrics['final_equity']:.2f}")
+    print(f"Symbol:          {summary['symbol']}")
+    print(f"Bars:            {summary['bars']}")
+    print(f"Trades:          {summary['trades']}")
+    print(f"P&L:             {summary['pnl_pct']:+.2f}%")
+    print(f"Max Drawdown:    {summary['max_drawdown']:.2f}%")
+    print(f"Win Rate:        {summary['win_rate']:.1f}%")
+    print(f"Avg Trade P&L:   ${summary['avg_trade_pnl']:.2f}")
+    print(f"Final Equity:    ${summary['final_equity']:.2f}")
     print("=" * 60)
 
 
@@ -204,81 +148,24 @@ def main() -> None:
         if args.symbol:
             config["symbol"] = args.symbol
 
-        symbol = config.get("symbol", "BTCUSDT")
-
-        # Determine if we need LLM
-        mode = config.get("mode", "quant_only")
-        strategy_type = config.get("strategy_type", "indicator")
-
-        needs_llm = (
-            strategy_type == "combined"
-            and mode in ("llm_only", "hybrid")
-            and args.use_llm
-        )
-
-        # Create LLM client if needed
-        llm_client = None
-        if needs_llm:
-            logger.info(f"Creating LLM client with model: {args.model}")
-            try:
-                llm_client = create_llm_client(
-                    model=args.model,
-                    ollama_url=args.ollama_url,
-                )
-            except Exception as e:
-                logger.error(f"Failed to create LLM client: {e}")
-                logger.warning("Falling back to QUANT_ONLY mode")
-                config["mode"] = "quant_only"
-        elif mode in ("llm_only", "hybrid") and not args.use_llm:
-            logger.warning(
-                f"Strategy requires LLM (mode={mode}) but --use-llm not set. "
-                "Forcing QUANT_ONLY mode"
-            )
-            config["mode"] = "quant_only"
-
-        # Create strategy
-        logger.info(f"Creating strategy: type={strategy_type}, mode={config.get('mode')}")
-        strategy = create_strategy_from_config(config, llm_client=llm_client)
-
-        # Load data
-        logger.info(f"Loading data from {args.data}")
-        if not args.data.exists():
-            raise FileNotFoundError(f"Data file not found: {args.data}")
-
-        data_feed = CSVDataFeed(path=args.data, symbol=symbol)
-
-        # Create backtester
+        # Run backtest using service layer
         logger.info("Running backtest...")
-        backtester = Backtester(
-            strategy=strategy,
-            data_feed=data_feed,
+        summary = run_backtest_from_config_dict(
+            config=config,
+            data_path=str(args.data),
+            use_llm=args.use_llm,
+            llm_model=args.model,
+            llm_url=args.ollama_url,
             initial_equity=args.initial_equity,
             fee_rate=args.fee_rate,
             slippage_bps=args.slippage_bps,
-            symbol=symbol,
         )
 
-        # Run backtest
-        result = backtester.run()
-
-        # Compute and print metrics
-        metrics = compute_metrics(result)
-        print_results(metrics, symbol)
-
-        # Print trade details if verbose
-        if args.verbose and result.trades:
-            print("\nTrade Details:")
-            print("-" * 60)
-            for i, trade in enumerate(result.trades, 1):
-                print(
-                    f"Trade {i}: {trade.side.upper()} | "
-                    f"Entry: ${trade.entry_price:.2f} | "
-                    f"Exit: ${trade.exit_price or 0:.2f} | "
-                    f"P&L: ${trade.pnl or 0:.2f}"
-                )
+        # Print results
+        print_results(summary)
 
         # Exit with appropriate code
-        sys.exit(0 if metrics["total_return_pct"] >= 0 else 1)
+        sys.exit(0 if summary["pnl_pct"] >= 0 else 1)
 
     except FileNotFoundError as e:
         logger.error(f"File not found: {e}")
