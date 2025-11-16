@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
 from llm_trading_system.engine.backtest_service import run_backtest_from_config_dict
 from llm_trading_system.strategies import storage
@@ -16,6 +20,11 @@ app = FastAPI(
     version="0.1.0",
     description="HTTP JSON API for backtesting and strategy management",
 )
+
+# Setup templates and static files
+BASE_DIR = Path(__file__).resolve().parent
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
 @app.get("/health")
@@ -193,6 +202,277 @@ async def run_backtest(request: dict[str, Any]) -> dict[str, Any]:
         )
 
         return summary
+
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Backtest failed: {type(e).__name__}: {e}"
+        )
+
+
+# ============================================================================
+# Web UI Routes (HTML)
+# ============================================================================
+
+
+@app.get("/ui/", response_class=HTMLResponse)
+async def ui_index(request: Request) -> HTMLResponse:
+    """Web UI: List all strategy configurations.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        HTML response with strategy list
+    """
+    try:
+        strategies = storage.list_configs()
+        return templates.TemplateResponse(
+            "index.html", {"request": request, "strategies": strategies}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list configs: {e}")
+
+
+@app.get("/ui/strategies/new", response_class=HTMLResponse)
+async def ui_new_strategy(request: Request) -> HTMLResponse:
+    """Web UI: Show form to create a new strategy.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        HTML response with empty strategy form
+    """
+    return templates.TemplateResponse(
+        "strategy_form.html", {"request": request, "name": None, "config": {}}
+    )
+
+
+@app.get("/ui/strategies/{name}/edit", response_class=HTMLResponse)
+async def ui_edit_strategy(request: Request, name: str) -> HTMLResponse:
+    """Web UI: Show form to edit an existing strategy.
+
+    Args:
+        request: FastAPI request object
+        name: Strategy config name
+
+    Returns:
+        HTML response with populated strategy form
+
+    Raises:
+        HTTPException: If config not found (404) or error loading (500)
+    """
+    try:
+        config = storage.load_config(name)
+        return templates.TemplateResponse(
+            "strategy_form.html", {"request": request, "name": name, "config": config}
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Config '{name}' not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load config: {e}")
+
+
+@app.post("/ui/strategies/{name}/save")
+async def ui_save_strategy(
+    name: str,
+    strategy_name: str = Form(..., alias="name"),
+    strategy_type: str = Form(...),
+    mode: str = Form(...),
+    symbol: str = Form(...),
+    base_size: float = Form(...),
+    allow_long: bool = Form(False),
+    allow_short: bool = Form(False),
+    ema_fast_len: int = Form(...),
+    ema_slow_len: int = Form(...),
+    rsi_len: int = Form(...),
+    rsi_ovb: int = Form(...),
+    rsi_ovs: int = Form(...),
+    bb_len: int = Form(...),
+    bb_std: float = Form(...),
+    atr_len: int = Form(...),
+    adx_len: int = Form(...),
+    k_max: float = Form(2.0),
+    llm_horizon_hours: int = Form(24),
+    llm_min_prob_edge: float = Form(0.55),
+    llm_min_trend_strength: float = Form(0.6),
+    llm_refresh_interval_bars: int = Form(60),
+    rules_long_entry: str = Form("[]"),
+    rules_short_entry: str = Form("[]"),
+    rules_long_exit: str = Form("[]"),
+    rules_short_exit: str = Form("[]"),
+) -> RedirectResponse:
+    """Web UI: Save a strategy configuration.
+
+    Args:
+        name: URL path parameter (for existing configs)
+        strategy_name: Strategy name from form
+        (other form fields...)
+
+    Returns:
+        Redirect to edit page for the saved strategy
+
+    Raises:
+        HTTPException: If validation fails (400) or save error (500)
+    """
+    # Use form name if different from URL name (for new strategies)
+    actual_name = strategy_name if name == "new" else name
+
+    # Parse rules from JSON strings
+    try:
+        long_entry = json.loads(rules_long_entry)
+        short_entry = json.loads(rules_short_entry)
+        long_exit = json.loads(rules_long_exit)
+        short_exit = json.loads(rules_short_exit)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid rules JSON: {e}")
+
+    # Build config dictionary
+    config = {
+        "strategy_type": strategy_type,
+        "mode": mode,
+        "symbol": symbol,
+        "base_size": base_size,
+        "allow_long": allow_long,
+        "allow_short": allow_short,
+        "ema_fast_len": ema_fast_len,
+        "ema_slow_len": ema_slow_len,
+        "rsi_len": rsi_len,
+        "rsi_ovb": rsi_ovb,
+        "rsi_ovs": rsi_ovs,
+        "bb_len": bb_len,
+        "bb_std": bb_std,
+        "atr_len": atr_len,
+        "adx_len": adx_len,
+        "k_max": k_max,
+        "llm_horizon_hours": llm_horizon_hours,
+        "llm_min_prob_edge": llm_min_prob_edge,
+        "llm_min_trend_strength": llm_min_trend_strength,
+        "llm_refresh_interval_bars": llm_refresh_interval_bars,
+        "rules": {
+            "long_entry": long_entry,
+            "short_entry": short_entry,
+            "long_exit": long_exit,
+            "short_exit": short_exit,
+        },
+    }
+
+    # Save config
+    try:
+        storage.save_config(actual_name, config)
+        return RedirectResponse(
+            url=f"/ui/strategies/{actual_name}/edit", status_code=303
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save config: {e}")
+
+
+@app.post("/ui/strategies/{name}/delete")
+async def ui_delete_strategy(name: str) -> RedirectResponse:
+    """Web UI: Delete a strategy configuration.
+
+    Args:
+        name: Strategy config name
+
+    Returns:
+        Redirect to index page
+
+    Raises:
+        HTTPException: If config not found (404) or error deleting (500)
+    """
+    try:
+        storage.delete_config(name)
+        return RedirectResponse(url="/ui/", status_code=303)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Config '{name}' not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete config: {e}")
+
+
+@app.get("/ui/strategies/{name}/backtest", response_class=HTMLResponse)
+async def ui_backtest_form(request: Request, name: str) -> HTMLResponse:
+    """Web UI: Show backtest form for a strategy.
+
+    Args:
+        request: FastAPI request object
+        name: Strategy config name
+
+    Returns:
+        HTML response with backtest form
+
+    Raises:
+        HTTPException: If config not found (404)
+    """
+    try:
+        config = storage.load_config(name)
+        return templates.TemplateResponse(
+            "backtest_form.html",
+            {"request": request, "name": name, "config": config},
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Config '{name}' not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load config: {e}")
+
+
+@app.post("/ui/strategies/{name}/backtest", response_class=HTMLResponse)
+async def ui_run_backtest(
+    request: Request,
+    name: str,
+    data_path: str = Form(...),
+    use_llm: bool = Form(False),
+    llm_model: str = Form("llama3.2"),
+    llm_url: str = Form("http://localhost:11434"),
+    initial_equity: float = Form(10000.0),
+    fee_rate: float = Form(0.001),
+    slippage_bps: float = Form(1.0),
+) -> HTMLResponse:
+    """Web UI: Run a backtest and show results.
+
+    Args:
+        request: FastAPI request object
+        name: Strategy config name
+        data_path: Path to CSV data file
+        use_llm: Whether to use LLM
+        llm_model: LLM model name
+        llm_url: Ollama server URL
+        initial_equity: Initial equity
+        fee_rate: Trading fee rate
+        slippage_bps: Slippage in basis points
+
+    Returns:
+        HTML response with backtest results
+
+    Raises:
+        HTTPException: If config not found, data not found, or backtest fails
+    """
+    try:
+        # Load config
+        config = storage.load_config(name)
+
+        # Run backtest
+        summary = run_backtest_from_config_dict(
+            config=config,
+            data_path=data_path,
+            use_llm=use_llm,
+            llm_model=llm_model if use_llm else None,
+            llm_url=llm_url if use_llm else None,
+            initial_equity=initial_equity,
+            fee_rate=fee_rate,
+            slippage_bps=slippage_bps,
+        )
+
+        # Render results
+        return templates.TemplateResponse(
+            "backtest_result.html",
+            {"request": request, "name": name, "summary": summary},
+        )
 
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))

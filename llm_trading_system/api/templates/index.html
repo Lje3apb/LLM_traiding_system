@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Strategy Configs - LLM Trading System{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Strategy Configurations</h2>
+    <a href="/ui/strategies/new" class="btn btn-primary">Create New Strategy</a>
+</div>
+
+{% if strategies %}
+<div class="strategy-list">
+    {% for name in strategies %}
+    <div class="strategy-card">
+        <h3>{{ name }}</h3>
+        <div class="strategy-actions">
+            <a href="/ui/strategies/{{ name }}/edit" class="btn btn-secondary">Edit</a>
+            <form method="POST" action="/ui/strategies/{{ name }}/delete" style="display: inline;">
+                <button type="submit" class="btn btn-danger" onclick="return confirm('Delete strategy {{ name }}?')">Delete</button>
+            </form>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <p>No strategy configurations found.</p>
+    <p><a href="/ui/strategies/new">Create your first strategy</a></p>
+</div>
+{% endif %}
+{% endblock %}

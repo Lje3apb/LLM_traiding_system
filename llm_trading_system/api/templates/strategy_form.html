@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block title %}{{ 'Edit' if name else 'New' }} Strategy - LLM Trading System{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>{{ 'Edit Strategy: ' + name if name else 'Create New Strategy' }}</h2>
+</div>
+
+<form method="POST" action="/ui/strategies/{{ name if name else 'new' }}/save" class="strategy-form">
+    <div class="form-section">
+        <h3>Basic Settings</h3>
+
+        <div class="form-group">
+            <label for="name">Strategy Name</label>
+            <input type="text" id="name" name="name" value="{{ name or '' }}" {% if name %}readonly{% endif %} required>
+        </div>
+
+        <div class="form-group">
+            <label for="strategy_type">Strategy Type</label>
+            <select id="strategy_type" name="strategy_type" required>
+                <option value="indicator" {% if config.get('strategy_type') == 'indicator' %}selected{% endif %}>Indicator</option>
+                <option value="combined" {% if config.get('strategy_type') == 'combined' %}selected{% endif %}>Combined</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="mode">Mode</label>
+            <select id="mode" name="mode" required>
+                <option value="quant_only" {% if config.get('mode') == 'quant_only' %}selected{% endif %}>Quant Only</option>
+                <option value="llm_only" {% if config.get('mode') == 'llm_only' %}selected{% endif %}>LLM Only</option>
+                <option value="hybrid" {% if config.get('mode') == 'hybrid' %}selected{% endif %}>Hybrid</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="symbol">Symbol</label>
+            <input type="text" id="symbol" name="symbol" value="{{ config.get('symbol', 'BTCUSDT') }}" required>
+        </div>
+
+        <div class="form-group">
+            <label for="base_size">Base Size</label>
+            <input type="number" id="base_size" name="base_size" value="{{ config.get('base_size', 0.1) }}" step="0.01" min="0" required>
+        </div>
+
+        <div class="form-group">
+            <label>
+                <input type="checkbox" name="allow_long" {% if config.get('allow_long', True) %}checked{% endif %}>
+                Allow Long
+            </label>
+        </div>
+
+        <div class="form-group">
+            <label>
+                <input type="checkbox" name="allow_short" {% if config.get('allow_short', False) %}checked{% endif %}>
+                Allow Short
+            </label>
+        </div>
+    </div>
+
+    <div class="form-section">
+        <h3>Indicator Parameters</h3>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="ema_fast_len">EMA Fast Length</label>
+                <input type="number" id="ema_fast_len" name="ema_fast_len" value="{{ config.get('ema_fast_len', 12) }}" min="1" required>
+            </div>
+
+            <div class="form-group">
+                <label for="ema_slow_len">EMA Slow Length</label>
+                <input type="number" id="ema_slow_len" name="ema_slow_len" value="{{ config.get('ema_slow_len', 26) }}" min="1" required>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="rsi_len">RSI Length</label>
+                <input type="number" id="rsi_len" name="rsi_len" value="{{ config.get('rsi_len', 14) }}" min="1" required>
+            </div>
+
+            <div class="form-group">
+                <label for="rsi_ovb">RSI Overbought</label>
+                <input type="number" id="rsi_ovb" name="rsi_ovb" value="{{ config.get('rsi_ovb', 70) }}" min="0" max="100" required>
+            </div>
+
+            <div class="form-group">
+                <label for="rsi_ovs">RSI Oversold</label>
+                <input type="number" id="rsi_ovs" name="rsi_ovs" value="{{ config.get('rsi_ovs', 30) }}" min="0" max="100" required>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="bb_len">Bollinger Bands Length</label>
+                <input type="number" id="bb_len" name="bb_len" value="{{ config.get('bb_len', 20) }}" min="1" required>
+            </div>
+
+            <div class="form-group">
+                <label for="bb_std">Bollinger Bands Std Dev</label>
+                <input type="number" id="bb_std" name="bb_std" value="{{ config.get('bb_std', 2.0) }}" step="0.1" min="0" required>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="atr_len">ATR Length</label>
+                <input type="number" id="atr_len" name="atr_len" value="{{ config.get('atr_len', 14) }}" min="1" required>
+            </div>
+
+            <div class="form-group">
+                <label for="adx_len">ADX Length</label>
+                <input type="number" id="adx_len" name="adx_len" value="{{ config.get('adx_len', 14) }}" min="1" required>
+            </div>
+        </div>
+    </div>
+
+    <div class="form-section">
+        <h3>LLM Parameters (for LLM_ONLY and HYBRID modes)</h3>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="k_max">K Max</label>
+                <input type="number" id="k_max" name="k_max" value="{{ config.get('k_max', 2.0) }}" step="0.1" min="0">
+            </div>
+
+            <div class="form-group">
+                <label for="llm_horizon_hours">LLM Horizon (hours)</label>
+                <input type="number" id="llm_horizon_hours" name="llm_horizon_hours" value="{{ config.get('llm_horizon_hours', 24) }}" min="1">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="llm_min_prob_edge">LLM Min Prob Edge</label>
+                <input type="number" id="llm_min_prob_edge" name="llm_min_prob_edge" value="{{ config.get('llm_min_prob_edge', 0.55) }}" step="0.01" min="0" max="1">
+            </div>
+
+            <div class="form-group">
+                <label for="llm_min_trend_strength">LLM Min Trend Strength</label>
+                <input type="number" id="llm_min_trend_strength" name="llm_min_trend_strength" value="{{ config.get('llm_min_trend_strength', 0.6) }}" step="0.01" min="0" max="1">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="llm_refresh_interval_bars">LLM Refresh Interval (bars)</label>
+            <input type="number" id="llm_refresh_interval_bars" name="llm_refresh_interval_bars" value="{{ config.get('llm_refresh_interval_bars', 60) }}" min="1">
+        </div>
+    </div>
+
+    <div class="form-section">
+        <h3>Trading Rules (JSON format)</h3>
+        <p class="help-text">Define entry and exit rules using JSON. Example: <code>[{"left": "ema_fast", "op": "cross_above", "right": "ema_slow"}]</code></p>
+
+        <div class="form-group">
+            <label for="rules_long_entry">Long Entry Rules</label>
+            <textarea id="rules_long_entry" name="rules_long_entry" rows="3">{{ config.get('rules', {}).get('long_entry', []) | tojson }}</textarea>
+        </div>
+
+        <div class="form-group">
+            <label for="rules_short_entry">Short Entry Rules</label>
+            <textarea id="rules_short_entry" name="rules_short_entry" rows="3">{{ config.get('rules', {}).get('short_entry', []) | tojson }}</textarea>
+        </div>
+
+        <div class="form-group">
+            <label for="rules_long_exit">Long Exit Rules</label>
+            <textarea id="rules_long_exit" name="rules_long_exit" rows="3">{{ config.get('rules', {}).get('long_exit', []) | tojson }}</textarea>
+        </div>
+
+        <div class="form-group">
+            <label for="rules_short_exit">Short Exit Rules</label>
+            <textarea id="rules_short_exit" name="rules_short_exit" rows="3">{{ config.get('rules', {}).get('short_exit', []) | tojson }}</textarea>
+        </div>
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Save Strategy</button>
+        <a href="/ui/" class="btn btn-secondary">Cancel</a>
+        {% if name %}
+        <a href="/ui/strategies/{{ name }}/backtest" class="btn btn-success">Run Backtest</a>
+        {% endif %}
+    </div>
+</form>
+{% endblock %}
