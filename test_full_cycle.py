@@ -10,7 +10,6 @@ This test demonstrates the complete trading system pipeline:
 6. Display final trading decision
 """
 
-import json
 import logging
 import os
 import sys
@@ -18,13 +17,11 @@ from pathlib import Path
 from typing import Any, Dict
 
 from llm_infra import OllamaProvider, LLMClientSync, RetryPolicy
-from position_sizing import compute_position_multipliers
 from market_snapshot import (
     build_market_snapshot,
-    build_system_prompt,
-    build_user_prompt,
     load_settings,
 )
+from regime_engine import evaluate_regime_and_size
 
 
 # Load .env file if it exists
@@ -44,48 +41,6 @@ def load_env():
 
 
 load_env()
-
-
-def parse_llm_response(response_text: str) -> Dict[str, Any]:
-    """Parse LLM JSON response with error handling.
-
-    Args:
-        response_text: Raw text response from LLM
-
-    Returns:
-        Parsed JSON dictionary
-
-    Raises:
-        ValueError: If response is not valid JSON
-    """
-    # Try to find JSON in the response (LLM might add extra text)
-    response_text = response_text.strip()
-
-    # Remove markdown code blocks if present
-    if response_text.startswith("```json"):
-        response_text = response_text[7:]  # Remove ```json
-    if response_text.startswith("```"):
-        response_text = response_text[3:]  # Remove ```
-    if response_text.endswith("```"):
-        response_text = response_text[:-3]  # Remove trailing ```
-
-    response_text = response_text.strip()
-
-    # Find first { and last }
-    start_idx = response_text.find("{")
-    end_idx = response_text.rfind("}")
-
-    if start_idx == -1 or end_idx == -1:
-        raise ValueError("No JSON object found in response")
-
-    json_text = response_text[start_idx : end_idx + 1]
-
-    try:
-        return json.loads(json_text)
-    except json.JSONDecodeError as e:
-        logging.error("Failed to parse JSON: %s", e)
-        logging.error("Response text: %s", json_text[:500])
-        raise ValueError(f"Invalid JSON in LLM response: {e}")
 
 
 def create_mock_snapshot() -> Dict[str, Any]:
@@ -145,56 +100,6 @@ def create_mock_snapshot() -> Dict[str, Any]:
     }
 
 
-def validate_llm_output(llm_output: Dict[str, Any]) -> None:
-    """Validate LLM output structure and values.
-
-    Args:
-        llm_output: Parsed LLM response
-
-    Raises:
-        ValueError: If output is invalid
-    """
-    required_fields = [
-        "prob_bull",
-        "prob_bear",
-        "regime_label",
-        "confidence_level",
-        "scores",
-    ]
-
-    for field in required_fields:
-        if field not in llm_output:
-            raise ValueError(f"Missing required field: {field}")
-
-    # Validate probabilities
-    prob_bull = llm_output["prob_bull"]
-    prob_bear = llm_output["prob_bear"]
-
-    if not (0.0 <= prob_bull <= 1.0):
-        raise ValueError(f"Invalid prob_bull: {prob_bull}")
-    if not (0.0 <= prob_bear <= 1.0):
-        raise ValueError(f"Invalid prob_bear: {prob_bear}")
-
-    prob_sum = prob_bull + prob_bear
-    if abs(prob_sum - 1.0) > 0.05:  # Allow 5% tolerance
-        logging.warning(f"Probabilities sum to {prob_sum}, expected 1.0")
-
-    # Validate scores
-    scores = llm_output["scores"]
-    required_scores = [
-        "global_sentiment",
-        "btc_sentiment",
-        "onchain_pressure",
-        "liquidity_risk",
-        "news_risk",
-        "trend_strength",
-    ]
-
-    for score_name in required_scores:
-        if score_name not in scores:
-            logging.warning(f"Missing score: {score_name}")
-
-
 def run_full_cycle_test(
     use_real_data: bool = False,
     ollama_model: str = "deepseek-v3.1:671b-cloud",
@@ -243,25 +148,14 @@ def run_full_cycle_test(
     print()
 
     # =========================================================================
-    # STEP 2: Build Prompts
+    # STEP 2: Initialize LLM infrastructure
     # =========================================================================
-    print("[STEP 2] Building prompts for LLM...")
-    print("-" * 80)
-
-    system_prompt = build_system_prompt()
-    user_prompt = build_user_prompt(snapshot, horizon_hours, base_asset)
-
-    print(f"✓ System prompt length: {len(system_prompt)} chars")
-    print(f"✓ User prompt length: {len(user_prompt)} chars")
-    print()
-
-    # =========================================================================
-    # STEP 3: Send Request to LLM
-    # =========================================================================
-    print("[STEP 3] Sending request to LLM...")
+    print("[STEP 2] Initializing LLM infrastructure...")
     print("-" * 80)
     print(f"Model: {ollama_model}")
     print(f"Endpoint: {ollama_url}")
+
+    base_size = 0.01  # 1% of capital
 
     try:
         # Create provider and client
@@ -274,16 +168,22 @@ def run_full_cycle_test(
         retry_policy = RetryPolicy(max_retries=2, base_delay=2.0)
         client = LLMClientSync(provider=provider, retry_policy=retry_policy)
 
-        # Make request
         print("Waiting for LLM response (this may take 10-60 seconds)...")
-        response_text = client.complete(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            temperature=0.1,  # Low temperature for more deterministic output
+        result = evaluate_regime_and_size(
+            snapshot=snapshot,
+            client=client,
+            base_size=base_size,
+            k_max=2.0,
+            temperature=0.1,
         )
 
-        print("✓ Received response from LLM")
-        print(f"  Response length: {len(response_text)} chars")
+        llm_output = result["llm_output"]
+        k_long = result["k_long"]
+        k_short = result["k_short"]
+        pos_long = result["pos_long"]
+        pos_short = result["pos_short"]
+
+        print("✓ Received response from LLM and computed sizing")
         print()
 
     except Exception as e:
@@ -296,64 +196,27 @@ def run_full_cycle_test(
         sys.exit(1)
 
     # =========================================================================
-    # STEP 4: Parse LLM Response
+    # STEP 3: Parse LLM Response
     # =========================================================================
-    print("[STEP 4] Parsing LLM response...")
+    print("[STEP 3] LLM response summary...")
     print("-" * 80)
-
-    try:
-        llm_output = parse_llm_response(response_text)
-        validate_llm_output(llm_output)
-
-        print("✓ Successfully parsed JSON response")
-        print(f"  Regime: {llm_output.get('regime_label', 'N/A')}")
-        print(f"  Confidence: {llm_output.get('confidence_level', 'N/A')}")
-        print(f"  Bull probability: {llm_output.get('prob_bull', 0):.2%}")
-        print(f"  Bear probability: {llm_output.get('prob_bear', 0):.2%}")
-        print()
-
-    except ValueError as e:
-        print(f"✗ Failed to parse LLM response: {e}")
-        print()
-        print("Raw response (first 500 chars):")
-        print(response_text[:500])
-        sys.exit(1)
+    print("✓ Successfully parsed JSON response")
+    print(f"  Regime: {llm_output.get('regime_label', 'N/A')}")
+    print(f"  Confidence: {llm_output.get('confidence_level', 'N/A')}")
+    print(f"  Bull probability: {llm_output.get('prob_bull', 0):.2%}")
+    print(f"  Bear probability: {llm_output.get('prob_bear', 0):.2%}")
+    print()
 
     # =========================================================================
-    # STEP 5: Calculate Position Sizing
+    # STEP 4: Calculate Position Sizing
     # =========================================================================
-    print("[STEP 5] Calculating position sizing...")
+    print("[STEP 4] Position sizing overview...")
     print("-" * 80)
-
-    base_size = 0.01  # 1% of capital
-
-    try:
-        pos_long, k_long, k_short = compute_position_multipliers(
-            llm_output=llm_output,
-            side="long",
-            base_long_size=base_size,
-            base_short_size=base_size,
-            k_max=2.0,
-        )
-
-        pos_short, _, _ = compute_position_multipliers(
-            llm_output=llm_output,
-            side="short",
-            base_long_size=base_size,
-            base_short_size=base_size,
-            k_max=2.0,
-        )
-
-        print("✓ Position sizing calculated")
-        print(f"  Long multiplier (k_long):  {k_long:.4f}")
-        print(f"  Short multiplier (k_short): {k_short:.4f}")
-        print(f"  Long position size:  {pos_long:.6f} ({pos_long * 100:.2f}% capital)")
-        print(f"  Short position size: {pos_short:.6f} ({pos_short * 100:.2f}% capital)")
-        print()
-
-    except Exception as e:
-        print(f"✗ Position sizing failed: {e}")
-        sys.exit(1)
+    print(f"  Long multiplier (k_long):  {k_long:.4f}")
+    print(f"  Short multiplier (k_short): {k_short:.4f}")
+    print(f"  Long position size:  {pos_long:.6f} ({pos_long * 100:.2f}% capital)")
+    print(f"  Short position size: {pos_short:.6f} ({pos_short * 100:.2f}% capital)")
+    print()
 
     # =========================================================================
     # STEP 6: Display Final Results
