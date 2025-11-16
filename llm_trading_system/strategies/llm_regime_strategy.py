@@ -9,7 +9,11 @@ from llm_trading_system.strategies.base import AccountState, Bar, Order, Strateg
 
 
 class LLMRegimeStrategy(Strategy):
-    """Strategy scaffold that can periodically query the LLM regime engine."""
+    """Strategy scaffold that can periodically query the LLM regime engine.
+
+    TODO: Add support for StrategyMode (LLM_ONLY / QUANT_ONLY / HYBRID)
+    to allow switching between pure LLM, pure quantitative, or hybrid modes.
+    """
 
     def __init__(
         self,
