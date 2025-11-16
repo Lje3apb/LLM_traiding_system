@@ -2,6 +2,7 @@
 
 from llm_trading_system.strategies.base import AccountState, Bar, Order, Strategy
 from llm_trading_system.strategies.configs import IndicatorStrategyConfig
+from llm_trading_system.strategies.indicator_strategy import IndicatorStrategy
 from llm_trading_system.strategies.indicators import (
     ATRState,
     BollingerState,
@@ -26,6 +27,7 @@ __all__ = [
     "Order",
     "AccountState",
     "LLMRegimeStrategy",
+    "IndicatorStrategy",
     "StrategyMode",
     "IndicatorStrategyConfig",
     # Batch indicator functions

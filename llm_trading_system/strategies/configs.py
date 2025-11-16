@@ -49,6 +49,7 @@ class IndicatorStrategyConfig:
     # Position control
     allow_long: bool = True
     allow_short: bool = True
+    base_size: float = 0.01  # Base position size as fraction of equity
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> IndicatorStrategyConfig:
