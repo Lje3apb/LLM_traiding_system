@@ -2,7 +2,7 @@
 
 import logging
 
-from market_snapshot import Settings, fetch_onchain_data
+from llm_trading_system.core.market_snapshot import Settings, fetch_onchain_data
 
 
 def main() -> None:

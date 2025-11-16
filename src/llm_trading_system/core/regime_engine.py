@@ -6,8 +6,8 @@ import json
 import logging
 from typing import Any, Dict
 
-from market_snapshot import build_system_prompt, build_user_prompt
-from position_sizing import compute_position_multipliers
+from llm_trading_system.core.market_snapshot import build_system_prompt, build_user_prompt
+from llm_trading_system.core.position_sizing import compute_position_multipliers
 
 
 def parse_llm_response(response_text: str) -> Dict[str, Any]:

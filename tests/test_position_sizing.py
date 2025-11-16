@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from position_sizing import clamp, compute_position_multipliers, safe_get_score
+from llm_trading_system.core.position_sizing import clamp, compute_position_multipliers, safe_get_score
 
 
 class TestHelperFunctions(unittest.TestCase):
