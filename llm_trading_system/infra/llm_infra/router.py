@@ -1,8 +1,7 @@
 """LLM router to select models based on task type."""
 
 from typing import Dict, Optional
-
-from .types import LLMProvider
+from llm_infra.types import LLMProvider
 
 
 class LLMRouter:

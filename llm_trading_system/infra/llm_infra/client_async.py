@@ -1,10 +1,9 @@
 """Asynchronous high-level LLM client with retry and compression."""
 
 from typing import List, Optional
-
-from .types import AsyncLLMProvider
-from .retry import AsyncRetryPolicy
-from .compressor import PromptCompressor
+from llm_infra.types import AsyncLLMProvider
+from llm_infra.retry import AsyncRetryPolicy
+from llm_infra.compressor import PromptCompressor
 
 
 class LLMClientAsync:
