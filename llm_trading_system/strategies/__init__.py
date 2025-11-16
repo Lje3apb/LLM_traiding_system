@@ -3,6 +3,7 @@
 from llm_trading_system.strategies.base import AccountState, Bar, Order, Strategy
 from llm_trading_system.strategies.combined_strategy import CombinedStrategy
 from llm_trading_system.strategies.configs import IndicatorStrategyConfig
+from llm_trading_system.strategies.factory import create_strategy_from_config
 from llm_trading_system.strategies.indicator_strategy import IndicatorStrategy
 from llm_trading_system.strategies.indicators import (
     ATRState,
@@ -32,6 +33,8 @@ __all__ = [
     "CombinedStrategy",
     "StrategyMode",
     "IndicatorStrategyConfig",
+    # Factory
+    "create_strategy_from_config",
     # Batch indicator functions
     "sma",
     "ema",

@@ -1,0 +1,29 @@
+{
+  "strategy_type": "indicator",
+  "mode": "quant_only",
+  "symbol": "BTCUSDT",
+  "base_size": 0.1,
+  "ema_fast_len": 5,
+  "ema_slow_len": 20,
+  "rsi_len": 14,
+  "allow_long": true,
+  "allow_short": false,
+  "rules": {
+    "long_entry": [
+      {
+        "left": "ema_fast",
+        "op": "cross_above",
+        "right": "ema_slow"
+      }
+    ],
+    "short_entry": [],
+    "long_exit": [
+      {
+        "left": "ema_fast",
+        "op": "cross_below",
+        "right": "ema_slow"
+      }
+    ],
+    "short_exit": []
+  }
+}
