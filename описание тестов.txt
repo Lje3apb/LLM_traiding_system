@@ -52,8 +52,14 @@ python test_full_cycle.py
 # С вашей моделью gpt-oss:20b
 python test_full_cycle.py --model gpt-oss:20b
 
+# С вашей моделью deepseek-v3.1:671b-cloud
+python test_full_cycle.py --model deepseek-v3.1:671b-cloud
+
 # С реальными данными (требует API ключи)
 python test_full_cycle.py --real-data --model gpt-oss:20b
+или
+python test_full_cycle.py --real-data --model deepseek-v3.1:671b-cloud
+
 📊 Что вы увидите:
 [STEP 1] Collecting market data...
 ✓ Data collected for BTCUSDT, horizon: 4h

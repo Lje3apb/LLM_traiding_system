@@ -10,8 +10,8 @@ class OllamaProvider:
     def __init__(
         self,
         base_url: str = "http://localhost:11434",
-        model: str = "gpt-oss:20b",
-        timeout: int = 120,
+        model: str = "deepseek-v3.1:671b-cloud",
+        timeout: int = 600,
     ):
         """Initialize Ollama provider.
 

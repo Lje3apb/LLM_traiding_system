@@ -176,7 +176,7 @@ def validate_llm_output(llm_output: Dict[str, Any]) -> None:
 
 def run_full_cycle_test(
     use_real_data: bool = False,
-    ollama_model: str = "gpt-oss:20b",
+    ollama_model: str = "deepseek-v3.1:671b-cloud",
     ollama_url: str = "http://localhost:11434",
 ) -> None:
     """Run complete trading system test from data collection to position sizing.
