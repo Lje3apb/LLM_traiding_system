@@ -18,6 +18,7 @@ from llm_trading_system.strategies.indicators import (
 )
 from llm_trading_system.strategies.llm_regime_strategy import LLMRegimeStrategy
 from llm_trading_system.strategies.modes import StrategyMode
+from llm_trading_system.strategies.rules import Condition, RuleSet, evaluate_rules
 
 __all__ = [
     "Strategy",
@@ -41,4 +42,8 @@ __all__ = [
     "RSIState",
     "ATRState",
     "BollingerState",
+    # Rule engine
+    "Condition",
+    "RuleSet",
+    "evaluate_rules",
 ]
