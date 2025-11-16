@@ -409,6 +409,7 @@ def run_full_cycle_test(
 def main() -> None:
     """Main entry point."""
     import argparse
+    import os
 
     parser = argparse.ArgumentParser(
         description="Full cycle integration test for trading system"
@@ -430,8 +431,24 @@ def main() -> None:
         default="http://localhost:11434",
         help="Ollama API URL (default: http://localhost:11434)",
     )
+    parser.add_argument(
+        "--cryptopanic-key",
+        type=str,
+        help="CryptoPanic API key (or use CRYPTOPANIC_API_KEY env var)",
+    )
+    parser.add_argument(
+        "--newsapi-key",
+        type=str,
+        help="NewsAPI key (or use NEWSAPI_KEY env var)",
+    )
 
     args = parser.parse_args()
+
+    # Set API keys from command line arguments if provided
+    if args.cryptopanic_key:
+        os.environ["CRYPTOPANIC_API_KEY"] = args.cryptopanic_key
+    if args.newsapi_key:
+        os.environ["NEWSAPI_KEY"] = args.newsapi_key
 
     run_full_cycle_test(
         use_real_data=args.real_data,
