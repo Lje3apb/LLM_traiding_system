@@ -40,7 +40,7 @@ if [ $? -eq 0 ]; then
     MODEL_COUNT=$(echo "$MODELS" | tail -n +2 | wc -l)
     if [ $MODEL_COUNT -eq 0 ]; then
         echo "⚠ No models installed"
-        echo "  Pull a model with: ollama pull llama3.2"
+        echo "  Pull a model with: ollama pull gpt-oss:20b"
     else
         echo "✓ Found $MODEL_COUNT model(s)"
     fi
@@ -67,6 +67,6 @@ echo "✓ Ollama is ready to use!"
 echo "=========================================="
 echo
 echo "Next steps:"
-echo "  1. Make sure you have a model: ollama pull llama3.2"
+echo "  1. Make sure you have a model: ollama pull gpt-oss:20b"
 echo "  2. Run the test script: python3 test_ollama.py"
 echo

@@ -10,7 +10,7 @@ class OllamaProvider:
     def __init__(
         self,
         base_url: str = "http://localhost:11434",
-        model: str = "llama2",
+        model: str = "gpt-oss:20b",
         timeout: int = 120,
     ):
         """Initialize Ollama provider.

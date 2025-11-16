@@ -17,7 +17,7 @@ def main():
     try:
         provider = OllamaProvider(
             base_url="http://localhost:11434",
-            model="llama3.2",  # Change to your model name
+            model="gpt-oss:20b",  # Change to your model name
             timeout=120
         )
 
@@ -31,7 +31,7 @@ def main():
         print(f"✗ Error: {e}")
         print("\nPossible issues:")
         print("1. Ollama service not running (run: ollama serve)")
-        print("2. Model not available (run: ollama pull llama3.2)")
+        print("2. Model not available (run: ollama pull gpt-oss:20b)")
         print("3. Wrong base URL or port")
         return 1
 
@@ -39,7 +39,7 @@ def main():
     print("\n[Test 2] Client with Retry Policy")
     print("-" * 60)
     try:
-        provider = OllamaProvider(model="llama3.2")
+        provider = OllamaProvider(model="gpt-oss:20b")
         retry_policy = RetryPolicy(max_retries=2, base_delay=0.5)
         client = LLMClientSync(provider=provider, retry_policy=retry_policy)
 
@@ -57,7 +57,7 @@ def main():
     print("\n[Test 3] Batch Completion")
     print("-" * 60)
     try:
-        provider = OllamaProvider(model="llama3.2")
+        provider = OllamaProvider(model="gpt-oss:20b")
         client = LLMClientSync(provider=provider)
 
         questions = [
@@ -87,7 +87,7 @@ def main():
     # Test 4: Different models (if available)
     print("\n[Test 4] Testing Different Models")
     print("-" * 60)
-    test_models = ["llama3.2", "llama2", "mistral", "phi"]
+    test_models = ["gpt-oss:20b", "llama2", "mistral", "phi"]
 
     for model_name in test_models:
         try:
