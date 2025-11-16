@@ -1,26 +1,27 @@
-"""Asynchronous high-level LLM client with retry and compression."""
+"""Synchronous high-level LLM client with retry and compression."""
 
 from typing import List, Optional
-from llm_infra.types import AsyncLLMProvider
-from llm_infra.retry import AsyncRetryPolicy
-from llm_infra.compressor import PromptCompressor
+
+from .types import LLMProvider
+from .retry import RetryPolicy
+from .compressor import PromptCompressor
 
 
-class LLMClientAsync:
-    """High-level asynchronous LLM client with retry and compression."""
+class LLMClientSync:
+    """High-level synchronous LLM client with retry and compression."""
 
     def __init__(
         self,
-        provider: AsyncLLMProvider,
-        retry_policy: Optional[AsyncRetryPolicy] = None,
+        provider: LLMProvider,
+        retry_policy: Optional[RetryPolicy] = None,
         compressor: Optional[PromptCompressor] = None,
         max_tokens: Optional[int] = None,
     ):
-        """Initialize asynchronous LLM client.
+        """Initialize synchronous LLM client.
 
         Args:
-            provider: Async LLM provider implementation.
-            retry_policy: Async retry policy for failed requests (None = no retry).
+            provider: LLM provider implementation.
+            retry_policy: Retry policy for failed requests (None = no retry).
             compressor: Prompt compressor (None = no compression).
             max_tokens: Maximum tokens for prompts (None = no limit).
         """
@@ -29,7 +30,7 @@ class LLMClientAsync:
         self.compressor = compressor
         self.max_tokens = max_tokens
 
-    async def complete(
+    def complete(
         self,
         system_prompt: str,
         user_prompt: str,
@@ -52,9 +53,9 @@ class LLMClientAsync:
         if self.retry_policy:
             complete_func = self.retry_policy(complete_func)
 
-        return await complete_func(system_prompt, user_prompt, temperature)
+        return complete_func(system_prompt, user_prompt, temperature)
 
-    async def complete_batch(
+    def complete_batch(
         self,
         system_prompt: str,
         user_prompts: List[str],
@@ -77,7 +78,7 @@ class LLMClientAsync:
         if self.retry_policy:
             complete_batch_func = self.retry_policy(complete_batch_func)
 
-        return await complete_batch_func(system_prompt, user_prompts, temperature)
+        return complete_batch_func(system_prompt, user_prompts, temperature)
 
     def _compress_if_needed(self, text: str) -> str:
         """Compress text if compressor and max_tokens are configured.

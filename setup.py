@@ -15,8 +15,7 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/Lje3apb/LLM_traiding_system",
-    package_dir={"": "src"},
-    packages=find_packages(where="src"),
+    packages=find_packages(exclude=("tests",)),
     python_requires=">=3.12",
     install_requires=[
         "requests>=2.32.3",

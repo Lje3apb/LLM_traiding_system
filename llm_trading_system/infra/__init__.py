@@ -5,7 +5,7 @@ This module provides the infrastructure for communicating with LLM providers:
 """
 
 # Re-export all llm_infra components for convenience
-from llm_trading_system.infra.llm_infra import (
+from .llm_infra import (
     AsyncLLMProvider,
     AsyncRetryPolicy,
     LLMClientAsync,

@@ -28,7 +28,7 @@ from llm_trading_system.core.regime_engine import evaluate_regime_and_size
 def load_env():
     """Load environment variables from .env file."""
     # Look for .env in the project root (3 levels up from this file)
-    env_file = Path(__file__).parent.parent.parent.parent / ".env"
+    env_file = Path(__file__).parent.parent.parent / ".env"
     if env_file.exists():
         with open(env_file, encoding='utf-8') as f:
             for line in f:

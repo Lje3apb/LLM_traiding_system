@@ -8,10 +8,14 @@ This package provides a modular trading system that combines:
 
 __version__ = "0.1.0"
 
-# Submodules are imported lazily when accessed
-# This avoids circular imports and keeps the package lightweight
+# Re-export key modules for convenience
+from .core import market_snapshot, position_sizing, regime_engine  # noqa: E402,F401
+
 __all__ = [
     "core",
     "infra",
     "cli",
+    "market_snapshot",
+    "position_sizing",
+    "regime_engine",
 ]
