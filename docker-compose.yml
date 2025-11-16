@@ -23,7 +23,7 @@ services:
           cpus: '0.5'
           memory: 256M
     # Default command - can be overridden
-    command: python position_sizing.py
+    command: python -m llm_trading_system.core.position_sizing
 
   # Service for running tests
   test:
@@ -35,7 +35,7 @@ services:
       - .env
     volumes:
       - .:/app
-    command: python -m unittest discover -s . -p "test_*.py" -v
+    command: python -m pytest tests/ -v
     profiles:
       - test
 
@@ -49,6 +49,6 @@ services:
       - .env
     volumes:
       - .:/app
-    command: python market_snapshot.py
+    command: python -m llm_trading_system.core.market_snapshot
     profiles:
       - market

@@ -2,7 +2,7 @@
 """Test script for llm_infra package with Ollama."""
 
 import sys
-from llm_infra import OllamaProvider, LLMClientSync, RetryPolicy
+from llm_trading_system.infra.llm_infra import OllamaProvider, LLMClientSync, RetryPolicy
 
 def main():
     """Test Ollama integration with llm_infra package."""

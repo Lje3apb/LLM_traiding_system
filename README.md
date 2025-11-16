@@ -83,13 +83,13 @@ venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 
 # Запустить примеры
-python position_sizing.py
+python -m llm_trading_system.core.position_sizing
 
 # Запустить тесты
-python -m unittest test_position_sizing.py -v
+python -m pytest tests/ -v
 
 # Запустить market snapshot (требуются API ключи)
-python market_snapshot.py
+python -m llm_trading_system.core.market_snapshot
 ```
 
 ## 📊 Проверка работы системы
@@ -177,7 +177,7 @@ print("✅ Все проверки пройдены!")
 EOF
 
 # Запустить тест
-docker-compose run --rm llm-trading python test_integration.py
+docker-compose run --rm llm-trading python -m llm_trading_system.cli.full_cycle_cli
 ```
 
 ### Проверка 4: API доступность (для market_snapshot)

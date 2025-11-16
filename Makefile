@@ -42,13 +42,13 @@ test:
 	docker-compose --profile test up test
 
 run-position:
-	docker-compose run --rm llm-trading python position_sizing.py
+	docker-compose run --rm llm-trading python -m llm_trading_system.core.position_sizing
 
 run-market:
 	docker-compose --profile market up market-snapshot
 
 run-integration:
-	docker-compose run --rm llm-trading python test_integration.py
+	docker-compose run --rm llm-trading python -m llm_trading_system.cli.full_cycle_cli
 
 logs:
 	docker-compose logs -f
@@ -63,16 +63,16 @@ clean:
 
 # Local commands (without Docker)
 local-test:
-	python -m unittest test_position_sizing.py -v
+	python -m pytest tests/ -v
 
 local-run:
-	python position_sizing.py
+	python -m llm_trading_system.core.position_sizing
 
 local-integration:
-	python test_integration.py
+	python -m llm_trading_system.cli.full_cycle_cli
 
 local-market:
-	python market_snapshot.py
+	python -m llm_trading_system.core.market_snapshot
 
 # Setup commands
 setup:

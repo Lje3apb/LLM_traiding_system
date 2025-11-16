@@ -16,18 +16,19 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
-from llm_infra import OllamaProvider, LLMClientSync, RetryPolicy
-from market_snapshot import (
+from llm_trading_system.infra.llm_infra import OllamaProvider, LLMClientSync, RetryPolicy
+from llm_trading_system.core.market_snapshot import (
     build_market_snapshot,
     load_settings,
 )
-from regime_engine import evaluate_regime_and_size
+from llm_trading_system.core.regime_engine import evaluate_regime_and_size
 
 
 # Load .env file if it exists
 def load_env():
     """Load environment variables from .env file."""
-    env_file = Path(__file__).parent / ".env"
+    # Look for .env in the project root (one level up from tests/)
+    env_file = Path(__file__).parent.parent / ".env"
     if env_file.exists():
         with open(env_file, encoding='utf-8') as f:
             for line in f:
