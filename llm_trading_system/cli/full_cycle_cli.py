@@ -1,36 +1,25 @@
 #!/usr/bin/env python3
-"""Full cycle demonstration: Data -> LLM -> Position Sizing.
-
-This script demonstrates the complete trading system pipeline:
-1. Collect market data (or use mock data)
-2. Build prompts for LLM
-3. Send request to LLM (Ollama)
-4. Parse JSON response
-5. Calculate position sizing
-6. Display final trading decision
-"""
+"""Full cycle integration script for manual runs."""
 
 import logging
 import os
-import sys
 from pathlib import Path
 from typing import Any, Dict
 
-from llm_trading_system.infra.llm_infra import OllamaProvider, LLMClientSync, RetryPolicy
 from llm_trading_system.core.market_snapshot import (
     build_market_snapshot,
     load_settings,
 )
 from llm_trading_system.core.regime_engine import evaluate_regime_and_size
+from llm_trading_system.infra.llm_infra import LLMClientSync, OllamaProvider, RetryPolicy
 
 
 # Load .env file if it exists
-def load_env():
+def load_env() -> None:
     """Load environment variables from .env file."""
-    # Look for .env in the project root (3 levels up from this file)
     env_file = Path(__file__).parent.parent.parent / ".env"
     if env_file.exists():
-        with open(env_file, encoding='utf-8') as f:
+        with open(env_file, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
@@ -41,15 +30,8 @@ def load_env():
                         os.environ[key] = value
 
 
-load_env()
-
-
 def create_mock_snapshot() -> Dict[str, Any]:
-    """Create a mock market snapshot for testing without API calls.
-
-    Returns:
-        Mock snapshot dictionary with realistic test data
-    """
+    """Create a mock market snapshot for testing without API calls."""
     return {
         "timestamp_utc": "2025-01-15T10:30:00+00:00",
         "base_asset": "BTCUSDT",
@@ -101,22 +83,17 @@ def create_mock_snapshot() -> Dict[str, Any]:
     }
 
 
+load_env()
+
+
 def run_full_cycle_test(
     use_real_data: bool = False,
     ollama_model: str = "deepseek-v3.1:671b-cloud",
     ollama_url: str = "http://localhost:11434",
 ) -> None:
-    """Run complete trading system test from data collection to position sizing.
+    """Run complete trading system test from data collection to position sizing."""
 
-    Args:
-        use_real_data: If True, fetch real market data; if False, use mock data
-        ollama_model: Ollama model name to use
-        ollama_url: Ollama API base URL
-    """
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
     print("=" * 80)
     print("FULL CYCLE INTEGRATION TEST")
@@ -159,13 +136,7 @@ def run_full_cycle_test(
     base_size = 0.01  # 1% of capital
 
     try:
-        # Create provider and client
-        provider = OllamaProvider(
-            base_url=ollama_url,
-            model=ollama_model,
-            timeout=180,  # 3 minutes timeout for large models
-        )
-
+        provider = OllamaProvider(base_url=ollama_url, model=ollama_model, timeout=180)
         retry_policy = RetryPolicy(max_retries=2, base_delay=2.0)
         client = LLMClientSync(provider=provider, retry_policy=retry_policy)
 
@@ -187,21 +158,21 @@ def run_full_cycle_test(
         print("✓ Received response from LLM and computed sizing")
         print()
 
-    except Exception as e:
-        print(f"✗ LLM request failed: {e}")
+    except Exception as exc:  # pragma: no cover - manual run diagnostic info
+        print(f"✗ LLM request failed: {exc}")
         print()
         print("Possible issues:")
         print("1. Ollama service not running (run: ollama serve)")
         print(f"2. Model '{ollama_model}' not available (run: ollama pull {ollama_model})")
         print("3. Timeout (try smaller model or increase timeout)")
-        sys.exit(1)
+        print("4. Network or SSL issues")
+        return
 
     # =========================================================================
-    # STEP 3: Parse LLM Response
+    # STEP 3: Summarize LLM Response
     # =========================================================================
-    print("[STEP 3] LLM response summary...")
+    print("[STEP 3] LLM regime summary...")
     print("-" * 80)
-    print("✓ Successfully parsed JSON response")
     print(f"  Regime: {llm_output.get('regime_label', 'N/A')}")
     print(f"  Confidence: {llm_output.get('confidence_level', 'N/A')}")
     print(f"  Bull probability: {llm_output.get('prob_bull', 0):.2%}")
@@ -220,7 +191,7 @@ def run_full_cycle_test(
     print()
 
     # =========================================================================
-    # STEP 6: Display Final Results
+    # STEP 5: Display Final Results
     # =========================================================================
     print("=" * 80)
     print("FINAL RESULTS")
@@ -265,11 +236,10 @@ def run_full_cycle_test(
     factors = llm_output.get("factors_summary", [])
     if factors:
         print("KEY FACTORS:")
-        for i, factor in enumerate(factors, 1):
-            print(f"  {i}. {factor}")
+        for idx, factor in enumerate(factors, start=1):
+            print(f"  {idx}. {factor}")
         print()
 
-    # Trading recommendation
     print("=" * 80)
     print("TRADING RECOMMENDATION:")
     print("=" * 80)
@@ -286,13 +256,12 @@ def run_full_cycle_test(
     print(recommendation)
     print("=" * 80)
     print()
-
     print("✓ Full cycle test completed successfully!")
     print()
 
 
 def main() -> None:
-    """Main entry point."""
+    """CLI entry point."""
     import argparse
 
     parser = argparse.ArgumentParser(
