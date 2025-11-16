@@ -1,0 +1,89 @@
+📦 Что было добавлено:
+test_ollama.py - полный тест пакета llm_infra с Ollama
+quick_test_ollama.py - быстрая проверка Ollama API
+check_ollama.sh - скрипт проверки статуса
+OLLAMA_SETUP.md - инструкция по настройке
+🚀 Теперь можете проверить:
+# 1. Запустите Ollama (если ещё не запущена)
+ollama serve
+
+# 2. Загрузите модель
+ollama pull llama3.2
+
+# 3. Проверьте статус (запуск Git Bash)
+./check_ollama.sh
+
+# 4. Быстрый тест (запуск PowerShell)
+python quick_test_ollama.py
+
+# 5. Полный тест llm_infra (запуск PowerShell)
+python test_ollama.py
+
+===========================================================
+
+ Что создано:
+test_full_cycle.py - главный тест всего цикла:
+
+Сбор данных (mock или реальные API)
+Формирование промптов
+Запрос к LLM (Ollama)
+Парсинг JSON ответа
+Расчет размера позиции
+Финальное торговое решение
+check_dependencies.py - проверка зависимостей
+
+FULL_CYCLE_TEST.md - подробная документация
+
+README_FULL_CYCLE.md - быстрый старт
+
+🚀 Запуск теста:
+Шаг 1: Проверьте зависимости
+python check_dependencies.py
+Шаг 2: Убедитесь что Ollama запущена
+# Проверка
+./check_ollama.sh
+
+# Если не запущена - запустите в отдельном терминале
+ollama serve
+Шаг 3: Запустите тест
+# С mock данными (быстро, без API ключей)
+python test_full_cycle.py
+
+# С вашей моделью gpt-oss:20b
+python test_full_cycle.py --model gpt-oss:20b
+
+# С реальными данными (требует API ключи)
+python test_full_cycle.py --real-data --model gpt-oss:20b
+📊 Что вы увидите:
+[STEP 1] Collecting market data...
+✓ Data collected for BTCUSDT, horizon: 4h
+
+[STEP 2] Building prompts for LLM...
+✓ System prompt length: 5102 chars
+
+[STEP 3] Sending request to LLM...
+Waiting for LLM response...
+✓ Received response from LLM
+
+[STEP 4] Parsing LLM response...
+✓ Successfully parsed JSON response
+  Regime: bull
+  Bull probability: 68.00%
+
+[STEP 5] Calculating position sizing...
+✓ Position sizing calculated
+  Long multiplier:  1.7234x
+  Short multiplier: 0.4567x
+
+================================================================================
+TRADING RECOMMENDATION:
+================================================================================
+FAVOR LONG positions (multiplier: 1.72x)
+🎯 Полный цикл:
+Данные → Промпты → LLM → JSON → Позиция → Решение
+  ↓         ↓       ↓      ↓       ↓         ↓
+Mock/API  Build  Ollama Parse  k_long   LONG/SHORT
+
+
+
+
