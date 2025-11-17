@@ -61,6 +61,15 @@ class PortfolioSimulator:
                 self._open_position(target, bar, equity=sizing_equity)
             return
 
+        if current == 0.0:
+            if target != 0.0:
+                self._open_position(target, bar)
+            return
+
+        # Handle position changes
+        current = self.account.position_size
+
+        # Case 1: Closing to flat
         if target == 0.0:
             self._close_position(bar, exit_price=exit_price)
             return

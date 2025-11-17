@@ -273,7 +273,7 @@ class IndicatorStrategy(Strategy):
         return order
 
     def _calculate_position_size(self) -> float:
-        """Calculate position size with martingale scaling.
+        """Calculate position size with optional martingale scaling.
 
         Returns:
             Position size as fraction of equity
@@ -345,8 +345,11 @@ class IndicatorStrategy(Strategy):
     def _close_position(self, *, exit_price: float | None = None) -> Order:
         """Close current position and reset state.
 
+        Args:
+            execution_price: Optional execution price (e.g., TP/SL trigger price)
+
         Returns:
-            Flat order
+            Flat order with execution price in meta if provided
         """
         self._mark_trade_closed()
         meta = {"exit_price": exit_price} if exit_price is not None else None
