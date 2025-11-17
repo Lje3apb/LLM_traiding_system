@@ -57,7 +57,10 @@ def parse_timestamp(value: str, tzinfo: datetime.tzinfo | None) -> datetime:
     if value.isdigit():
         ts = datetime.fromtimestamp(int(value), tz=timezone.utc)
     else:
-        ts = datetime.fromisoformat(value)
+        cleaned = value
+        if cleaned.endswith("Z") or cleaned.endswith("z"):
+            cleaned = cleaned[:-1] + "+00:00"
+        ts = datetime.fromisoformat(cleaned)
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=tzinfo or timezone.utc)
     if tzinfo:

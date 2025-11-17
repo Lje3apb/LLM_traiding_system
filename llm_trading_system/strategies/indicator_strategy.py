@@ -104,9 +104,9 @@ class IndicatorStrategy(Strategy):
 
         # Check TP/SL first (before computing indicators for performance)
         if self.config.use_tp_sl:
-            tp_sl_price = self._check_tp_sl_hit(bar, account)
-            if tp_sl_price is not None:
-                return self._close_position(execution_price=tp_sl_price)
+            exit_price = self._check_tp_sl_hit(bar, account)
+            if exit_price is not None:
+                return self._close_position(exit_price=exit_price)
 
         # Save previous indicators before computing new ones
         prev_indicators = self.current_indicators.copy() if self.current_indicators else None
@@ -221,45 +221,56 @@ class IndicatorStrategy(Strategy):
             # Exit short position
             return self._close_position()
 
-        # Check pyramiding limit
-        if self._open_positions_count >= self.config.pyramiding:
-            return None
-
         # Check entry signals
         if signals["long_entry"] and self.config.allow_long:
-            # Enter or increase long position (if within pyramiding limit)
-            if current_position <= 0 or (current_position > 0 and self._current_side == "long"):
-                # Allow entry if: (1) flat/short, or (2) already long and within pyramid limit
-                if current_position <= 0:
-                    # Fresh entry
-                    self._current_side = "long"
-                    self._open_positions_count = 0
-
-                # Add to position (checked against pyramiding above)
-                size = self._calculate_position_size()
-                self._entry_price = bar.close
-                self._set_tp_sl_for_long()
-                self._open_positions_count += 1
-                return Order(symbol=self.symbol, side="long", size=size)
+            order = self._prepare_entry("long", current_position, bar)
+            if order:
+                return order
 
         if signals["short_entry"] and self.config.allow_short:
-            # Enter or increase short position (if within pyramiding limit)
-            if current_position >= 0 or (current_position < 0 and self._current_side == "short"):
-                # Allow entry if: (1) flat/long, or (2) already short and within pyramid limit
-                if current_position >= 0:
-                    # Fresh entry
-                    self._current_side = "short"
-                    self._open_positions_count = 0
-
-                # Add to position (checked against pyramiding above)
-                size = self._calculate_position_size()
-                self._entry_price = bar.close
-                self._set_tp_sl_for_short()
-                self._open_positions_count += 1
-                return Order(symbol=self.symbol, side="short", size=size)
+            order = self._prepare_entry("short", current_position, bar)
+            if order:
+                return order
 
         # No signal or already in position
         return None
+
+    def _prepare_entry(
+        self, side: Literal["long", "short"], current_position: float, bar: Bar
+    ) -> Order | None:
+        """Prepare a new or pyramided entry respecting limits."""
+
+        same_direction = (current_position > 0 and side == "long") or (
+            current_position < 0 and side == "short"
+        )
+
+        # If switching direction, count previous trade as closed
+        if not same_direction and current_position != 0:
+            self._mark_trade_closed()
+
+        entries_in_position = self._open_positions_count if same_direction else 0
+        if entries_in_position >= self.config.pyramiding:
+            return None
+
+        incremental_size = self._calculate_position_size()
+        if incremental_size <= 0:
+            return None
+
+        base_target = abs(current_position) if same_direction else 0.0
+        target = min(1.0, base_target + incremental_size)
+        if target <= base_target:
+            return None
+
+        self._entry_price = bar.close
+        self._current_side = side
+        if side == "long":
+            self._set_tp_sl_for_long()
+        else:
+            self._set_tp_sl_for_short()
+
+        self._open_positions_count = entries_in_position + 1
+        order = Order(symbol=self.symbol, side=side, size=target)
+        return order
 
     def _calculate_position_size(self) -> float:
         """Calculate position size with optional martingale scaling.
@@ -271,14 +282,19 @@ class IndicatorStrategy(Strategy):
         step = self._closed_trades_count - self._open_positions_count
         step = max(0, step)
 
-        # Apply martingale multiplier only if enabled
+        base_fraction = self._base_position_fraction()
         if self.config.use_martingale:
-            size_factor = self.config.martingale_mult ** step
+            size = base_fraction * (self.config.martingale_mult ** step)
         else:
-            size_factor = 1.0
-
-        size = self.config.base_size * size_factor
+            size = base_fraction
         return min(size, 1.0)  # Cap at 100% equity
+
+    def _base_position_fraction(self) -> float:
+        """Resolve configured base size, including percent inputs."""
+
+        if self.config.base_position_pct is not None:
+            return max(0.0, min(self.config.base_position_pct / 100.0, 1.0))
+        return max(0.0, min(self.config.base_size, 1.0))
 
     def _set_tp_sl_for_long(self) -> None:
         """Set TP/SL prices for long position."""
@@ -306,7 +322,7 @@ class IndicatorStrategy(Strategy):
             account: Current account state
 
         Returns:
-            Execution price if TP or SL is hit, None otherwise
+            Exit price if TP or SL is hit, otherwise None
         """
         if account.position_size == 0 or self._entry_price is None:
             return None
@@ -326,7 +342,7 @@ class IndicatorStrategy(Strategy):
 
         return None
 
-    def _close_position(self, execution_price: float | None = None) -> Order:
+    def _close_position(self, *, exit_price: float | None = None) -> Order:
         """Close current position and reset state.
 
         Args:
@@ -335,16 +351,19 @@ class IndicatorStrategy(Strategy):
         Returns:
             Flat order with execution price in meta if provided
         """
+        self._mark_trade_closed()
+        meta = {"exit_price": exit_price} if exit_price is not None else None
+        return Order(symbol=self.symbol, side="flat", size=0.0, meta=meta)
+
+    def _mark_trade_closed(self) -> None:
+        """Update counters/state after closing an active trade."""
+
         self._closed_trades_count += 1
         self._open_positions_count = 0
         self._current_side = "flat"
         self._entry_price = None
         self._tp_price = None
         self._sl_price = None
-
-        # Pass execution price in meta if provided
-        meta = {"execution_price": execution_price} if execution_price else None
-        return Order(symbol=self.symbol, side="flat", size=0.0, meta=meta)
 
     def _is_in_time_window(self, bar: Bar) -> bool:
         """Check if current bar is within the configured time window.
