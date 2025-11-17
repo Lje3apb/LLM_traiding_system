@@ -218,6 +218,16 @@ async def run_backtest(request: dict[str, Any]) -> dict[str, Any]:
 # ============================================================================
 
 
+@app.get("/", response_class=RedirectResponse)
+async def root() -> RedirectResponse:
+    """Redirect root to Web UI.
+
+    Returns:
+        Redirect to /ui/
+    """
+    return RedirectResponse(url="/ui/")
+
+
 @app.get("/ui/", response_class=HTMLResponse)
 async def ui_index(request: Request) -> HTMLResponse:
     """Web UI: List all strategy configurations.
