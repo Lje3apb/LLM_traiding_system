@@ -163,12 +163,15 @@ class BinanceArchiveLoader:
             logger.error(f"Unexpected error for {date.date()}: {e}", exc_info=True)
             return None
 
-    def download_range(self, start_date: str, end_date: str) -> pd.DataFrame:
+    def download_range(
+        self, start_date: str, end_date: str, progress_callback=None
+    ) -> pd.DataFrame:
         """Download data for date range.
 
         Args:
             start_date: Start date (YYYY-MM-DD)
             end_date: End date (YYYY-MM-DD)
+            progress_callback: Optional callback function(current, total, date_str, filename)
 
         Returns:
             Combined DataFrame
@@ -183,8 +186,14 @@ class BinanceArchiveLoader:
         logger.info(f"Downloading {len(dates)} days: {start_date} to {end_date}")
 
         dfs = []
-        for date in dates:
+        for idx, date in enumerate(dates, 1):
             try:
+                # Call progress callback if provided
+                if progress_callback:
+                    date_str = date.strftime("%Y-%m-%d")
+                    filename = f"{self.symbol}-{self.interval}-{date_str}.zip"
+                    progress_callback(idx, len(dates), date_str, filename)
+
                 df = self._download_day(date)
                 if df is not None:
                     dfs.append(df)

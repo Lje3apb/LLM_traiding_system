@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -528,8 +528,8 @@ async def ui_download_data(
     interval: str = Form(...),
     start_date: str = Form(...),
     end_date: str = Form(...),
-) -> JSONResponse:
-    """Web UI: Download OHLCV data from Binance archive.
+) -> StreamingResponse:
+    """Web UI: Download OHLCV data from Binance archive with real-time progress.
 
     Args:
         name: Strategy config name (for context)
@@ -539,61 +539,129 @@ async def ui_download_data(
         end_date: End date (YYYY-MM-DD)
 
     Returns:
-        JSON response with file path and download status
-
-    Raises:
-        HTTPException: If download fails
+        Streaming response with progress updates (newline-delimited JSON)
     """
-    try:
-        # Validate dates
-        from datetime import datetime
+    from datetime import datetime, timedelta
+    import pandas as pd
 
+    async def generate_progress():
+        """Generate progress updates as JSON lines."""
         try:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-        except ValueError as e:
-            raise HTTPException(
-                status_code=400, detail=f"Invalid date format. Use YYYY-MM-DD: {e}"
-            )
+            # Validate dates
+            try:
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            except ValueError as e:
+                yield json.dumps(
+                    {"type": "error", "message": f"Invalid date format. Use YYYY-MM-DD: {e}"}
+                ) + "\n"
+                return
 
-        if end_dt < start_dt:
-            raise HTTPException(
-                status_code=400, detail="End date must be greater than or equal to start date"
-            )
+            if end_dt < start_dt:
+                yield json.dumps(
+                    {"type": "error", "message": "End date must be greater than or equal to start date"}
+                ) + "\n"
+                return
 
-        # Check if date range is too large (warn if > 1 year)
-        days_diff = (end_dt - start_dt).days
-        if days_diff > 365:
-            # Still allow but warn in the response
-            warning = f"Large date range ({days_diff} days) may take a while to download"
-        else:
-            warning = None
+            # Check if date range is too large
+            days_diff = (end_dt - start_dt).days
+            if days_diff > 365:
+                warning = f"Large date range ({days_diff} days) may take a while"
+                yield json.dumps({"type": "warning", "message": warning}) + "\n"
 
-        # Download data
-        data_manager = get_data_manager()
-        filepath, row_count = data_manager.get_or_download_data(
-            symbol=symbol, interval=interval, start_date=start_date, end_date=end_date
-        )
+            # Check if data is cached
+            data_manager = get_data_manager()
+            filepath = data_manager._get_filepath(symbol, interval, start_date, end_date)
 
-        # Return relative path for the form
-        relative_path = str(filepath)
+            if data_manager.check_data_coverage(filepath, start_date, end_date):
+                # Data is cached
+                yield json.dumps(
+                    {"type": "info", "message": "Using cached data..."}
+                ) + "\n"
+                df = data_manager.load_from_csv(filepath)
+                yield json.dumps(
+                    {
+                        "type": "complete",
+                        "file_path": str(filepath),
+                        "rows": len(df),
+                        "message": f"Loaded {len(df)} rows from cache",
+                    }
+                ) + "\n"
+                return
 
-        return JSONResponse(
-            {
-                "status": "success",
-                "file_path": relative_path,
-                "rows": row_count,
-                "message": f"Downloaded {days_diff + 1} days, {row_count} rows",
-                "warning": warning,
-            }
-        )
+            # Download fresh data
+            from llm_trading_system.data.binance_loader import BinanceArchiveLoader
 
-    except ValueError as e:
-        # Data download failed (no data available)
-        raise HTTPException(status_code=404, detail=f"Data not found: {e}")
-    except Exception as e:
-        # Other errors
-        raise HTTPException(status_code=500, detail=f"Download failed: {type(e).__name__}: {e}")
+            loader = BinanceArchiveLoader(symbol, interval)
+
+            # Send initial message
+            yield json.dumps(
+                {"type": "info", "message": f"Starting download of {days_diff + 1} days..."}
+            ) + "\n"
+
+            # Download with progress tracking
+            dates_list = [start_dt + timedelta(days=i) for i in range(days_diff + 1)]
+
+            dfs = []
+            for idx, date in enumerate(dates_list, 1):
+                date_str = date.strftime("%Y-%m-%d")
+                filename = f"{symbol}-{interval}-{date_str}.zip"
+
+                # Send progress update
+                yield json.dumps(
+                    {
+                        "type": "progress",
+                        "current": idx,
+                        "total": len(dates_list),
+                        "date": date_str,
+                        "filename": filename,
+                        "percent": int((idx / len(dates_list)) * 100),
+                    }
+                ) + "\n"
+
+                # Download day
+                try:
+                    df = loader._download_day(date)
+                    if df is not None:
+                        dfs.append(df)
+                except Exception as e:
+                    yield json.dumps(
+                        {"type": "warning", "message": f"Failed {date_str}: {str(e)[:50]}"}
+                    ) + "\n"
+
+            if not dfs:
+                yield json.dumps(
+                    {"type": "error", "message": f"No data downloaded for {symbol} {interval}"}
+                ) + "\n"
+                return
+
+            # Processing data
+            yield json.dumps({"type": "info", "message": "Processing data..."}) + "\n"
+
+            # Merge dataframes
+            df = pd.concat(dfs, ignore_index=True)
+            df = df.sort_values("open_time").reset_index(drop=True)
+            df = df.drop_duplicates(subset=["open_time"], keep="first")
+
+            # Save to CSV
+            data_manager.save_to_csv(df, filepath)
+
+            # Send completion
+            yield json.dumps(
+                {
+                    "type": "complete",
+                    "file_path": str(filepath),
+                    "rows": len(df),
+                    "message": f"Downloaded {days_diff + 1} days, {len(df)} rows",
+                }
+            ) + "\n"
+
+        except Exception as e:
+            yield json.dumps(
+                {"type": "error", "message": f"Download failed: {type(e).__name__}: {str(e)[:100]}"}
+            ) + "\n"
+
+    return StreamingResponse(generate_progress(), media_type="application/x-ndjson")
 
 
 def main() -> None:
