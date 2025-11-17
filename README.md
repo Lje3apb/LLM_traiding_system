@@ -176,8 +176,7 @@ nano .env
 ```bash
 # Собрать образ и запустить API сервер
 docker-compose build
-docker-compose run --rm -p 8000:8000 llm-trading \
-    python -m llm_trading_system.api.server
+docker-compose run --rm -p 8000:8000 llm-trading python -m llm_trading_system.api.server
 
 # Открыть в браузере:
 # http://localhost:8000/ui/    - Web интерфейс
