@@ -10,12 +10,61 @@
 
 <form method="POST" action="/ui/strategies/{{ name }}/backtest" class="strategy-form">
     <div class="form-section">
+        <h3>Data Download from Binance</h3>
+        <p class="help-text">Automatically download historical OHLCV data from Binance archive</p>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="download_symbol">Symbol</label>
+                <input type="text" id="download_symbol" name="download_symbol" value="{{ config.get('symbol', 'BTCUSDT') }}" placeholder="BTCUSDT">
+            </div>
+
+            <div class="form-group">
+                <label for="download_interval">Interval</label>
+                <select id="download_interval" name="download_interval">
+                    <option value="1m">1 minute</option>
+                    <option value="5m" selected>5 minutes</option>
+                    <option value="15m">15 minutes</option>
+                    <option value="30m">30 minutes</option>
+                    <option value="1h">1 hour</option>
+                    <option value="4h">4 hours</option>
+                    <option value="1d">1 day</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="download_start_date">Start Date</label>
+                <input type="date" id="download_start_date" name="download_start_date" value="2024-01-01">
+            </div>
+
+            <div class="form-group">
+                <label for="download_end_date">End Date</label>
+                <input type="date" id="download_end_date" name="download_end_date" value="2024-12-31">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <button type="button" id="download_btn" class="btn btn-primary">Download Data</button>
+            <span id="download_status" style="margin-left: 10px;"></span>
+        </div>
+
+        <div id="download_progress" style="display: none; margin-top: 10px;">
+            <div style="background: #e0e0e0; border-radius: 4px; height: 20px; overflow: hidden;">
+                <div id="progress_bar" style="background: #4CAF50; height: 100%; width: 0%; transition: width 0.3s;"></div>
+            </div>
+            <p id="progress_text" style="margin-top: 5px; font-size: 14px;"></p>
+        </div>
+    </div>
+
+    <div class="form-section">
         <h3>Backtest Parameters</h3>
 
         <div class="form-group">
             <label for="data_path">Data File Path</label>
-            <input type="text" id="data_path" name="data_path" placeholder="/path/to/data.csv" required>
-            <p class="help-text">Path to CSV file with OHLCV data (timestamp, open, high, low, close, volume)</p>
+            <input type="text" id="data_path" name="data_path" placeholder="data/BTCUSDT_5m_2024-01-01_2024-12-31.csv" required>
+            <p class="help-text">Path to CSV file with OHLCV data (will be auto-filled after download)</p>
         </div>
 
         <div class="form-row">
@@ -87,4 +136,108 @@
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const downloadBtn = document.getElementById('download_btn');
+    const downloadStatus = document.getElementById('download_status');
+    const downloadProgress = document.getElementById('download_progress');
+    const progressBar = document.getElementById('progress_bar');
+    const progressText = document.getElementById('progress_text');
+    const dataPathInput = document.getElementById('data_path');
+
+    downloadBtn.addEventListener('click', async function() {
+        // Get form values
+        const symbol = document.getElementById('download_symbol').value.trim();
+        const interval = document.getElementById('download_interval').value;
+        const startDate = document.getElementById('download_start_date').value;
+        const endDate = document.getElementById('download_end_date').value;
+
+        // Validate inputs
+        if (!symbol) {
+            alert('Please enter a symbol');
+            return;
+        }
+        if (!startDate || !endDate) {
+            alert('Please select start and end dates');
+            return;
+        }
+
+        // Disable button and show progress
+        downloadBtn.disabled = true;
+        downloadBtn.textContent = 'Downloading...';
+        downloadStatus.textContent = '';
+        downloadProgress.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressText.textContent = 'Starting download...';
+
+        try {
+            // Prepare form data
+            const formData = new FormData();
+            formData.append('symbol', symbol);
+            formData.append('interval', interval);
+            formData.append('start_date', startDate);
+            formData.append('end_date', endDate);
+
+            // Simulate progress (since we can't get real progress from server easily)
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                if (progress < 90) {
+                    progress += Math.random() * 10;
+                    progressBar.style.width = Math.min(progress, 90) + '%';
+                }
+            }, 300);
+
+            // Make request
+            const response = await fetch('/ui/strategies/{{ name }}/download_data', {
+                method: 'POST',
+                body: formData
+            });
+
+            clearInterval(progressInterval);
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Download failed');
+            }
+
+            const result = await response.json();
+
+            // Complete progress
+            progressBar.style.width = '100%';
+            progressText.textContent = result.message;
+
+            // Update data path field
+            dataPathInput.value = result.file_path;
+
+            // Show success message
+            downloadStatus.innerHTML = '<span style="color: green;">✓ Success!</span>';
+
+            if (result.warning) {
+                downloadStatus.innerHTML += '<br><span style="color: orange;">⚠ ' + result.warning + '</span>';
+            }
+
+            // Hide progress after 3 seconds
+            setTimeout(() => {
+                downloadProgress.style.display = 'none';
+            }, 3000);
+
+        } catch (error) {
+            // Show error
+            progressBar.style.width = '0%';
+            progressText.textContent = '';
+            downloadStatus.innerHTML = '<span style="color: red;">✗ Error: ' + error.message + '</span>';
+
+            // Hide progress
+            setTimeout(() => {
+                downloadProgress.style.display = 'none';
+            }, 3000);
+        } finally {
+            // Re-enable button
+            downloadBtn.disabled = false;
+            downloadBtn.textContent = 'Download Data';
+        }
+    });
+});
+</script>
 {% endblock %}

@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from llm_trading_system.data.data_manager import get_data_manager
 from llm_trading_system.engine.backtest_service import run_backtest_from_config_dict
 from llm_trading_system.strategies import storage
 
@@ -518,6 +519,81 @@ async def ui_run_backtest(
         raise HTTPException(
             status_code=500, detail=f"Backtest failed: {type(e).__name__}: {e}"
         )
+
+
+@app.post("/ui/strategies/{name}/download_data")
+async def ui_download_data(
+    name: str,
+    symbol: str = Form(...),
+    interval: str = Form(...),
+    start_date: str = Form(...),
+    end_date: str = Form(...),
+) -> JSONResponse:
+    """Web UI: Download OHLCV data from Binance archive.
+
+    Args:
+        name: Strategy config name (for context)
+        symbol: Trading pair (e.g. BTCUSDT)
+        interval: Candle interval (1m, 5m, 15m, 1h, 4h, 1d)
+        start_date: Start date (YYYY-MM-DD)
+        end_date: End date (YYYY-MM-DD)
+
+    Returns:
+        JSON response with file path and download status
+
+    Raises:
+        HTTPException: If download fails
+    """
+    try:
+        # Validate dates
+        from datetime import datetime
+
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        except ValueError as e:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid date format. Use YYYY-MM-DD: {e}"
+            )
+
+        if end_dt < start_dt:
+            raise HTTPException(
+                status_code=400, detail="End date must be greater than or equal to start date"
+            )
+
+        # Check if date range is too large (warn if > 1 year)
+        days_diff = (end_dt - start_dt).days
+        if days_diff > 365:
+            # Still allow but warn in the response
+            warning = f"Large date range ({days_diff} days) may take a while to download"
+        else:
+            warning = None
+
+        # Download data
+        data_manager = get_data_manager()
+        filepath, row_count = data_manager.get_or_download_data(
+            symbol=symbol, interval=interval, start_date=start_date, end_date=end_date
+        )
+
+        # Return relative path for the form
+        relative_path = str(filepath)
+
+        return JSONResponse(
+            {
+                "status": "success",
+                "file_path": relative_path,
+                "rows": row_count,
+                "message": f"Downloaded {days_diff + 1} days, {row_count} rows",
+                "warning": warning,
+            }
+        )
+
+    except ValueError as e:
+        # Data download failed (no data available)
+        raise HTTPException(status_code=404, detail=f"Data not found: {e}")
+    except Exception as e:
+        # Other errors
+        raise HTTPException(status_code=500, detail=f"Download failed: {type(e).__name__}: {e}")
 
 
 def main() -> None:
