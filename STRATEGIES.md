@@ -185,11 +185,9 @@ def bollinger(
 **Возвращает**: кортеж `(middle, upper, lower)` или `(None, None, None)`.
 
 **Доступные индикаторы в правилах**:
-- `bb_middle` — средняя линия (SMA)
-- `bb_upper` — верхняя полоса
-- `bb_lower` — нижняя полоса
-- `upperBB` — алиас для `bb_upper` (TradingView-style)
-- `lowerBB` — алиас для `bb_lower` (TradingView-style)
+- `bb_middle` или `bb_basis` — средняя линия (SMA)
+- `bb_upper`, `upper_bb`, `upperBB` — верхняя полоса (три алиаса)
+- `bb_lower`, `lower_bb`, `lowerBB` — нижняя полоса (три алиаса)
 
 **Пример в конфиге**:
 ```json
@@ -233,7 +231,7 @@ def atr(
 
 **Доступные индикаторы**:
 - `vol_ma` — SMA объёма
-- `vol_ma_scaled` — `vol_ma * vol_mult` (для фильтров объёма)
+- `vol_ma_scaled` или `vol_threshold` — `vol_ma * vol_mult` (для фильтров объёма, два алиаса)
 
 **Пример в конфиге**:
 ```json
@@ -254,7 +252,29 @@ def atr(
 - `volume` — объём
 - `hour` — час бара (0-23) — полезно для временных фильтров
 
-### 2.4 Как движок вычисляет индикаторы
+### 2.4 Полная таблица доступных индикаторов и алиасов
+
+| Индикатор | Основное имя | Алиасы | Описание |
+|-----------|--------------|--------|----------|
+| RSI | `rsi` | — | Relative Strength Index (0-100) |
+| SMA fast | `sma_fast` | — | SMA с периодом `ema_fast_len` |
+| SMA slow | `sma_slow` | — | SMA с периодом `ema_slow_len` |
+| EMA fast | `ema_fast` | — | EMA с периодом `ema_fast_len` |
+| EMA slow | `ema_slow` | — | EMA с периодом `ema_slow_len` |
+| BB middle | `bb_middle` | `bb_basis` | Средняя линия Bollinger Bands |
+| BB upper | `bb_upper` | `upper_bb`, `upperBB` | Верхняя полоса Bollinger Bands |
+| BB lower | `bb_lower` | `lower_bb`, `lowerBB` | Нижняя полоса Bollinger Bands |
+| ATR | `atr` | — | Average True Range |
+| Volume MA | `vol_ma` | — | SMA объёма с периодом `vol_ma_len` |
+| Volume threshold | `vol_ma_scaled` | `vol_threshold` | `vol_ma * vol_mult` |
+| OHLCV | `open`, `high`, `low`, `close`, `volume` | — | Текущие значения бара |
+| Hour | `hour` | — | Час из timestamp (0-23) |
+
+**Примечания**:
+- Алиасы полностью взаимозаменяемы (например, `lowerBB` = `lower_bb` = `bb_lower`)
+- Используйте тот вариант, который вам удобнее или привычнее (TradingView-style, snake_case и т.д.)
+
+### 2.5 Как движок вычисляет индикаторы
 
 1. **Данные от data_feed/backtester**: движок получает бары (OHLCV + timestamp) через интерфейс `Bar`.
 
@@ -604,14 +624,21 @@ qty = math.pow(mult, step)
 
 #### Шаг 2: Перенос индикаторов
 
-| Pine Script | Система |
-|-------------|---------|
-| `rsi = ta.rsi(close, rsiPeriod)` | `indicators["rsi"]` — вычисляется автоматически |
-| `basis, lowerBB, upperBB = bollinger(...)` | `indicators["lowerBB"]`, `indicators["upperBB"]` |
-| `volMA = ta.sma(volume, 21)` | `indicators["vol_ma"]` |
-| `hour` | `indicators["hour"]` — извлекается из timestamp |
+| Pine Script | Система | Доступные алиасы |
+|-------------|---------|------------------|
+| `rsi = ta.rsi(close, rsiPeriod)` | `indicators["rsi"]` | — |
+| `basis = ta.sma(close, bbLen)` | `indicators["bb_middle"]` | `bb_basis` |
+| `lowerBB = basis - dev` | `indicators["bb_lower"]` | `lower_bb`, `lowerBB` |
+| `upperBB = basis + dev` | `indicators["bb_upper"]` | `upper_bb`, `upperBB` |
+| `volMA = ta.sma(volume, 21)` | `indicators["vol_ma"]` | — |
+| `volMA * volMult` | `indicators["vol_threshold"]` | `vol_ma_scaled` |
+| `hour` | `indicators["hour"]` | — |
+| `low`, `high`, `close`, `volume` | `indicators["low"]`, `indicators["high"]`, etc. | — |
 
-**Все индикаторы вычисляются автоматически** на основе параметров в конфигурации.
+**Примечания**:
+- Все индикаторы вычисляются автоматически на основе параметров в конфигурации.
+- Система предоставляет несколько алиасов для совместимости с разными стилями кодирования.
+- `vol_threshold` — это предвычисленное значение `vol_ma * vol_mult`, чтобы не использовать выражения в правилах.
 
 #### Шаг 3: Перенос условий входа в JSON-правила
 
@@ -655,13 +682,19 @@ shortCond = inTime and (rsi > 80) and (high >= upperBB) and (volume > volMA * vo
 
 **Примечание**: Выражение `vol_ma * volMult` переносится как `"vol_ma * 0.5"` (система поддерживает простые арифметические выражения).
 
-**Альтернативный вариант**: Можно использовать предвычисленный индикатор `vol_ma_scaled`:
+**Альтернативный вариант 1**: Можно использовать предвычисленный индикатор `vol_ma_scaled`:
 
 ```json
 {"left": "volume", "op": ">", "right": "vol_ma_scaled"}
 ```
 
-(где `vol_ma_scaled = vol_ma * vol_mult` вычисляется в движке автоматически)
+**Альтернативный вариант 2**: Можно использовать алиас `vol_threshold`:
+
+```json
+{"left": "volume", "op": ">", "right": "vol_threshold"}
+```
+
+Все три варианта эквивалентны. `vol_threshold` — это предвычисленное значение `vol_ma * vol_mult`.
 
 #### Шаг 4: Перенос логики пирамидинга и мартингейла
 
@@ -722,6 +755,7 @@ self._sl_price = self._entry_price * (1 - self.config.sl_long_pct / 100)
 
 ```json
 {
+  "name": "eth_5m_night_cat_samurai",
   "strategy_type": "indicator",
   "mode": "quant_only",
   "symbol": "ETHUSDT",
@@ -754,15 +788,15 @@ self._sl_price = self._entry_price * (1 - self.config.sl_long_pct / 100)
       {"left": "hour", "op": ">=", "right": 0},
       {"left": "hour", "op": "<=", "right": 7},
       {"left": "rsi", "op": "<", "right": 22},
-      {"left": "low", "op": "<=", "right": "lowerBB"},
-      {"left": "volume", "op": ">", "right": "vol_ma * 0.5"}
+      {"left": "low", "op": "<=", "right": "lower_bb"},
+      {"left": "volume", "op": ">", "right": "vol_threshold"}
     ],
     "short_entry": [
       {"left": "hour", "op": ">=", "right": 0},
       {"left": "hour", "op": "<=", "right": 7},
       {"left": "rsi", "op": ">", "right": 80},
-      {"left": "high", "op": ">=", "right": "upperBB"},
-      {"left": "volume", "op": ">", "right": "vol_ma * 0.5"}
+      {"left": "high", "op": ">=", "right": "upper_bb"},
+      {"left": "volume", "op": ">", "right": "vol_threshold"}
     ],
     "long_exit": [],
     "short_exit": []
@@ -770,7 +804,10 @@ self._sl_price = self._entry_price * (1 - self.config.sl_long_pct / 100)
 }
 ```
 
-**Примечание**: Поля `long_exit` и `short_exit` оставлены пустыми, т.к. в исходной стратегии выход осуществляется только через TP/SL (которые реализованы отдельно).
+**Примечания**:
+- Поля `long_exit` и `short_exit` оставлены пустыми, т.к. в исходной стратегии выход осуществляется только через TP/SL (которые реализованы отдельно).
+- Используются алиасы `lower_bb`, `upper_bb` и `vol_threshold` для удобства и читаемости.
+- Этот конфиг доступен в файле `examples/night_cat_samurai_strategy.json` в репозитории.
 
 ### 4.5 Как использовать конфиг
 
@@ -844,15 +881,45 @@ print(f"Number of trades: {len(result.trades)}")
 
 **Адаптация**: Параметр `pyramiding` используется для ограничения количества попыток входа. Мартингейл-множитель масштабирует размер позиции на основе `step = closedtrades - opentrades`.
 
+**Практическое применение**: Несмотря на ограничение одной позиции, система корректно эмулирует поведение мартингейла:
+- При первом входе: `step = 0`, размер = `base_size * 1.5^0 = 0.10`
+- После закрытия 1 сделки: `step = 1`, размер = `base_size * 1.5^1 = 0.15`
+- После закрытия 2 сделок: `step = 2`, размер = `base_size * 1.5^2 = 0.225`
+
 **Будущее улучшение**: Можно расширить `PortfolioSimulator` для поддержки настоящего пирамидинга (множественных открытых позиций).
 
 #### TP/SL
 
 **TradingView**: Использует `strategy.exit()` с `limit` и `stop`.
 
-**Эта система**: TP/SL проверяются на каждом баре через `_check_tp_sl_hit()`. Если `bar.high >= tp_price` (для лонга) или `bar.low <= sl_price`, позиция закрывается.
+**Эта система**: TP/SL проверяются на каждом баре через `_check_tp_sl_hit()`.
 
-**Точность**: В реальности TP/SL могут сработать в любой момент внутри бара. В бэктестере используется упрощение: проверка по high/low бара.
+**Логика проверки** (консервативный подход, SL первым):
+1. Для лонга:
+   - Сначала проверяется: `bar.low <= sl_price` → закрытие по стопу
+   - Затем проверяется: `bar.high >= tp_price` → закрытие по тейку
+2. Для шорта:
+   - Сначала проверяется: `bar.high >= sl_price` → закрытие по стопу
+   - Затем проверяется: `bar.low <= tp_price` → закрытие по тейку
+
+**Точность**: В реальности TP/SL могут сработать в любой момент внутри бара. В бэктестере используется упрощение: проверка по high/low бара. SL проверяется первым для более консервативной оценки результатов.
+
+#### Комиссии
+
+**TradingView**: `commission_value=0.04` означает 0.04% от номинала сделки.
+
+**Эта система**: Используется параметр `fee_rate` в `Backtester`:
+```python
+backtester = Backtester(
+    strategy=strategy,
+    data_feed=data_feed,
+    initial_equity=50.0,
+    fee_rate=0.0004,  # 0.04% = 0.0004
+    symbol="ETHUSDT"
+)
+```
+
+Комиссия применяется при открытии и закрытии позиции.
 
 ---
 

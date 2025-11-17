@@ -159,11 +159,14 @@ class IndicatorStrategy(Strategy):
             closes_list, self.config.bb_len, self.config.bb_mult
         )
         indicators["bb_middle"] = bb_middle
+        indicators["bb_basis"] = bb_middle  # Alias for Pine Script compatibility
         indicators["bb_upper"] = bb_upper
         indicators["bb_lower"] = bb_lower
-        # Aliases for TradingView-style naming
-        indicators["lowerBB"] = bb_lower
+        # TradingView-style aliases
         indicators["upperBB"] = bb_upper
+        indicators["upper_bb"] = bb_upper
+        indicators["lowerBB"] = bb_lower
+        indicators["lower_bb"] = bb_lower
 
         # ATR
         indicators["atr"] = atr(
@@ -177,6 +180,7 @@ class IndicatorStrategy(Strategy):
         # Volume MA scaled by multiplier (for volume filter comparisons)
         if vol_ma_val is not None:
             indicators["vol_ma_scaled"] = vol_ma_val * self.config.vol_mult
+            indicators["vol_threshold"] = vol_ma_val * self.config.vol_mult  # Alias
 
         # Current OHLCV values (useful for rules)
         indicators["open"] = bar.open if bar else None
@@ -274,6 +278,10 @@ class IndicatorStrategy(Strategy):
     def _check_tp_sl_hit(self, bar: Bar, account: AccountState) -> bool:
         """Check if TP or SL is hit on current bar.
 
+        Note: SL is checked first (as in TradingView), then TP.
+        In reality, both could trigger within the same bar, but we
+        use a simplified model checking high/low of the bar.
+
         Args:
             bar: Current bar
             account: Current account state
@@ -285,14 +293,16 @@ class IndicatorStrategy(Strategy):
             return False
 
         if self._current_side == "long":
-            if self._tp_price and bar.high >= self._tp_price:
-                return True
+            # Check SL first (conservative approach)
             if self._sl_price and bar.low <= self._sl_price:
                 return True
-        elif self._current_side == "short":
-            if self._tp_price and bar.low <= self._tp_price:
+            if self._tp_price and bar.high >= self._tp_price:
                 return True
+        elif self._current_side == "short":
+            # Check SL first (conservative approach)
             if self._sl_price and bar.high >= self._sl_price:
+                return True
+            if self._tp_price and bar.low <= self._tp_price:
                 return True
 
         return False
