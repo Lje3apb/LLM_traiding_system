@@ -19,6 +19,12 @@ setup(
     python_requires=">=3.12",
     install_requires=[
         "requests>=2.32.3",
+        "fastapi>=0.115.0",
+        "uvicorn>=0.32.0",
+        "jinja2>=3.1.4",
+        "python-multipart>=0.0.9",
+        "numpy>=1.24.0",
+        "pandas>=2.0.0",
     ],
     extras_require={
         "dev": [
