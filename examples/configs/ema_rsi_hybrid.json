@@ -1,0 +1,58 @@
+{
+  "strategy_type": "combined",
+  "mode": "hybrid",
+  "symbol": "BTCUSDT",
+  "base_size": 0.02,
+  "k_max": 2.0,
+  "ema_fast_len": 50,
+  "ema_slow_len": 200,
+  "rsi_len": 14,
+  "rsi_ovb": 70,
+  "rsi_ovs": 30,
+  "allow_long": true,
+  "allow_short": true,
+  "llm_horizon_hours": 4,
+  "llm_min_prob_edge": 0.05,
+  "llm_min_trend_strength": 0.2,
+  "llm_refresh_interval_bars": 30,
+  "rules": {
+    "long_entry": [
+      {
+        "left": "ema_fast",
+        "op": "cross_above",
+        "right": "ema_slow"
+      },
+      {
+        "left": "rsi",
+        "op": "<",
+        "right": 30
+      }
+    ],
+    "short_entry": [
+      {
+        "left": "ema_fast",
+        "op": "cross_below",
+        "right": "ema_slow"
+      },
+      {
+        "left": "rsi",
+        "op": ">",
+        "right": 70
+      }
+    ],
+    "long_exit": [
+      {
+        "left": "rsi",
+        "op": ">",
+        "right": 60
+      }
+    ],
+    "short_exit": [
+      {
+        "left": "rsi",
+        "op": "<",
+        "right": 40
+      }
+    ]
+  }
+}

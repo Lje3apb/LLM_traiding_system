@@ -49,6 +49,14 @@ class IndicatorStrategyConfig:
     # Position control
     allow_long: bool = True
     allow_short: bool = True
+    base_size: float = 0.01  # Base position size as fraction of equity
+
+    # LLM-related fields (for HYBRID and LLM_ONLY modes)
+    k_max: float = 2.0  # Maximum LLM multiplier
+    llm_horizon_hours: int | None = None  # Override snapshot horizon_hours
+    llm_min_prob_edge: float = 0.05  # Minimal |prob_bull - prob_bear| for gating
+    llm_min_trend_strength: float = 0.2  # Minimal trend_strength for multipliers
+    llm_refresh_interval_bars: int = 30  # How often to refresh LLM regime in HYBRID
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> IndicatorStrategyConfig:

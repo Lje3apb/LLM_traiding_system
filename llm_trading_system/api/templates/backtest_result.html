@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}Backtest Results - {{ name }} - LLM Trading System{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Backtest Results: {{ name }}</h2>
+    <a href="/ui/strategies/{{ name }}/edit" class="btn btn-secondary">Edit Strategy</a>
+</div>
+
+<div class="backtest-results">
+    <div class="results-summary">
+        <h3>Summary</h3>
+        <div class="metrics-grid">
+            <div class="metric">
+                <span class="metric-label">Symbol</span>
+                <span class="metric-value">{{ summary.symbol }}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Bars</span>
+                <span class="metric-value">{{ summary.bars }}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Trades</span>
+                <span class="metric-value">{{ summary.trades }}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">P&L</span>
+                <span class="metric-value {% if summary.pnl_pct >= 0 %}positive{% else %}negative{% endif %}">
+                    {{ "+" if summary.pnl_pct >= 0 else "" }}{{ "%.2f"|format(summary.pnl_pct) }}%
+                </span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">P&L (Absolute)</span>
+                <span class="metric-value {% if summary.pnl_abs >= 0 %}positive{% else %}negative{% endif %}">
+                    ${{ "%.2f"|format(summary.pnl_abs) }}
+                </span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Max Drawdown</span>
+                <span class="metric-value negative">{{ "%.2f"|format(summary.max_drawdown) }}%</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Win Rate</span>
+                <span class="metric-value">{{ "%.1f"|format(summary.win_rate) }}%</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Avg Trade P&L</span>
+                <span class="metric-value {% if summary.avg_trade_pnl >= 0 %}positive{% else %}negative{% endif %}">
+                    ${{ "%.2f"|format(summary.avg_trade_pnl) }}
+                </span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Final Equity</span>
+                <span class="metric-value">${{ "%.2f"|format(summary.final_equity) }}</span>
+            </div>
+        </div>
+    </div>
+
+    {% if summary.equity_curve %}
+    <div class="equity-curve">
+        <h3>Equity Curve</h3>
+        <div class="chart-container">
+            <canvas id="equityChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // Simple ASCII-style equity curve visualization
+        const equityCurve = {{ summary.equity_curve | tojson }};
+        const canvas = document.getElementById('equityChart');
+        const ctx = canvas.getContext('2d');
+
+        // Set canvas size
+        canvas.width = 800;
+        canvas.height = 300;
+
+        // Calculate scale
+        const minEquity = Math.min(...equityCurve);
+        const maxEquity = Math.max(...equityCurve);
+        const range = maxEquity - minEquity;
+        const padding = 40;
+
+        // Draw axes
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(padding, padding);
+        ctx.lineTo(padding, canvas.height - padding);
+        ctx.lineTo(canvas.width - padding, canvas.height - padding);
+        ctx.stroke();
+
+        // Draw equity curve
+        ctx.strokeStyle = equityCurve[equityCurve.length - 1] >= equityCurve[0] ? '#28a745' : '#dc3545';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+
+        const xStep = (canvas.width - 2 * padding) / (equityCurve.length - 1);
+        const yScale = (canvas.height - 2 * padding) / range;
+
+        equityCurve.forEach((equity, i) => {
+            const x = padding + i * xStep;
+            const y = canvas.height - padding - (equity - minEquity) * yScale;
+
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        });
+
+        ctx.stroke();
+
+        // Draw labels
+        ctx.fillStyle = '#333';
+        ctx.font = '12px monospace';
+        ctx.fillText('$' + minEquity.toFixed(2), 5, canvas.height - padding + 5);
+        ctx.fillText('$' + maxEquity.toFixed(2), 5, padding);
+        ctx.fillText('Bars: ' + equityCurve.length, canvas.width - 100, canvas.height - 10);
+    </script>
+    {% endif %}
+
+    <div class="form-actions">
+        <a href="/ui/" class="btn btn-secondary">Back to Strategies</a>
+        <a href="/ui/strategies/{{ name }}/backtest" class="btn btn-primary">Run Again</a>
+    </div>
+</div>
+{% endblock %}
