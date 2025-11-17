@@ -51,11 +51,28 @@ class PortfolioSimulator:
         if abs(target - self.account.position_size) < 1e-9:
             return
 
-        if self.account.position_size != 0.0:
-            self._close_position(bar)
+        # Extract execution price from order meta if provided
+        execution_price = None
+        if order.meta and "execution_price" in order.meta:
+            execution_price = order.meta["execution_price"]
 
+        # Handle position changes
+        current = self.account.position_size
+
+        # Case 1: Closing to flat
         if target == 0.0:
+            if current != 0.0:
+                self._close_position(bar, execution_price)
             return
+
+        # Case 2: Same direction - resize position
+        if (current > 0 and target > 0) or (current < 0 and target < 0):
+            self._resize_position(target, bar)
+            return
+
+        # Case 3: Opposite direction or fresh entry - close then open
+        if current != 0.0:
+            self._close_position(bar, execution_price)
 
         self._open_position(target, bar)
 
@@ -83,11 +100,53 @@ class PortfolioSimulator:
         self._position_open_time = bar.timestamp
         self._last_entry_fee = entry_fee
 
-    def _close_position(self, bar: Bar) -> None:
+    def _resize_position(self, new_target: float, bar: Bar) -> None:
+        """Resize existing position without closing (for pyramiding/scaling)."""
+        if self.account.entry_price is None:
+            return
+
+        old_target = self.account.position_size
+        delta = new_target - old_target
+        direction = 1.0 if new_target > 0 else -1.0
+
+        # Calculate current equity including unrealized PnL
+        current_pnl = self._position_units * (bar.close - self.account.entry_price)
+        current_equity = self._entry_equity + current_pnl
+
+        # Trade only the delta
+        trade_price = self._apply_slippage(bar.close, is_buy=direction > 0)
+        delta_notional = current_equity * abs(delta)
+        delta_units = (delta_notional / trade_price) * direction
+        delta_fee = delta_notional * self.fee_rate
+
+        # Update position
+        self.account.equity = current_equity - delta_fee
+        self._entry_equity = self.account.equity
+        self.account.position_size = new_target
+        self._position_units += delta_units
+
+        # Recalculate weighted average entry price
+        total_position_value = abs(self._position_units) * self.account.entry_price
+        delta_position_value = abs(delta_units) * trade_price
+        new_total_value = total_position_value + delta_position_value
+        new_total_units = abs(self._position_units)
+
+        if new_total_units > 0:
+            self.account.entry_price = new_total_value / new_total_units
+
+        self._last_entry_fee += delta_fee
+
+    def _close_position(self, bar: Bar, execution_price: float | None = None) -> None:
         if self.account.entry_price is None or self._position_open_time is None:
             return
         direction = 1.0 if self.account.position_size > 0 else -1.0
-        exit_price = self._apply_slippage(bar.close, is_buy=direction < 0)
+
+        # Use execution_price if provided (e.g., for TP/SL), otherwise use bar.close
+        if execution_price is not None:
+            exit_price = execution_price
+        else:
+            exit_price = self._apply_slippage(bar.close, is_buy=direction < 0)
+
         pnl = self._position_units * (exit_price - self.account.entry_price)
         exit_fee = abs(self._position_units) * exit_price * self.fee_rate
 
