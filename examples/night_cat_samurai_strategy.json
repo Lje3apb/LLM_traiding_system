@@ -14,7 +14,9 @@
   "allow_long": true,
   "allow_short": true,
 
+  "base_position_pct": 10.0,
   "pyramiding": 4,
+  "use_martingale": true,
   "martingale_mult": 1.5,
 
   "tp_long_pct": 2.0,

@@ -116,6 +116,76 @@
     </div>
 
     <div class="form-section">
+        <h3>Risk / Money Management</h3>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="base_position_pct">Base Position (% of equity)</label>
+                <input type="number" id="base_position_pct" name="base_position_pct" value="{{ config.get('base_position_pct', 10.0) }}" step="0.1" min="0" max="100">
+                <small class="help-text">Percentage of equity for the first entry</small>
+            </div>
+
+            <div class="form-group">
+                <label for="pyramiding">Max Pyramiding (entries)</label>
+                <input type="number" id="pyramiding" name="pyramiding" value="{{ config.get('pyramiding', 1) }}" min="1" max="10">
+                <small class="help-text">Maximum number of concurrent entries</small>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="use_martingale" {% if config.get('use_martingale', False) %}checked{% endif %}>
+                    Use Martingale
+                </label>
+                <small class="help-text">Enable martingale position scaling</small>
+            </div>
+
+            <div class="form-group">
+                <label for="martingale_mult">Martingale Multiplier</label>
+                <input type="number" id="martingale_mult" name="martingale_mult" value="{{ config.get('martingale_mult', 1.5) }}" step="0.1" min="1.0">
+                <small class="help-text">Multiplier for martingale sizing (e.g., 1.5 means 1, 1.5, 2.25...)</small>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="tp_long_pct">TP Long (%)</label>
+                <input type="number" id="tp_long_pct" name="tp_long_pct" value="{{ config.get('tp_long_pct', 2.0) }}" step="0.1" min="0">
+                <small class="help-text">Take profit for long positions</small>
+            </div>
+
+            <div class="form-group">
+                <label for="sl_long_pct">SL Long (%)</label>
+                <input type="number" id="sl_long_pct" name="sl_long_pct" value="{{ config.get('sl_long_pct', 2.0) }}" step="0.1" min="0">
+                <small class="help-text">Stop loss for long positions</small>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="tp_short_pct">TP Short (%)</label>
+                <input type="number" id="tp_short_pct" name="tp_short_pct" value="{{ config.get('tp_short_pct', 2.0) }}" step="0.1" min="0">
+                <small class="help-text">Take profit for short positions</small>
+            </div>
+
+            <div class="form-group">
+                <label for="sl_short_pct">SL Short (%)</label>
+                <input type="number" id="sl_short_pct" name="sl_short_pct" value="{{ config.get('sl_short_pct', 2.0) }}" step="0.1" min="0">
+                <small class="help-text">Stop loss for short positions</small>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>
+                <input type="checkbox" name="use_tp_sl" {% if config.get('use_tp_sl', False) %}checked{% endif %}>
+                Enable TP/SL
+            </label>
+            <small class="help-text">Automatically close positions at take profit or stop loss levels</small>
+        </div>
+    </div>
+
+    <div class="form-section">
         <h3>LLM Parameters (for LLM_ONLY and HYBRID modes)</h3>
 
         <div class="form-row">
