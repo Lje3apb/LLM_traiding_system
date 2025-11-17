@@ -1,0 +1,28 @@
+{
+  "strategy_type": "indicator",
+  "mode": "quant_only",
+  "symbol": "BTCUSDT",
+  "base_size": 0.1,
+  "allow_long": true,
+  "allow_short": true,
+  "ema_fast_len": 12,
+  "ema_slow_len": 26,
+  "rsi_len": 14,
+  "rsi_ovb": 70,
+  "rsi_ovs": 30,
+  "bb_len": 20,
+  "bb_std": 2.0,
+  "atr_len": 14,
+  "adx_len": 14,
+  "k_max": 2.0,
+  "llm_horizon_hours": 24,
+  "llm_min_prob_edge": 0.55,
+  "llm_min_trend_strength": 0.6,
+  "llm_refresh_interval_bars": 60,
+  "rules": {
+    "long_entry": [],
+    "short_entry": [],
+    "long_exit": [],
+    "short_exit": []
+  }
+}

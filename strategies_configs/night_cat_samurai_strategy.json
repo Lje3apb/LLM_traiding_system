@@ -1,0 +1,48 @@
+{
+  "name": "eth_5m_night_cat_samurai",
+  "strategy_type": "indicator",
+  "mode": "quant_only",
+  "symbol": "ETHUSDT",
+
+  "rsi_len": 14,
+  "bb_len": 20,
+  "bb_mult": 2.0,
+  "vol_ma_len": 21,
+  "vol_mult": 0.5,
+
+  "base_size": 0.10,
+  "allow_long": true,
+  "allow_short": true,
+
+  "pyramiding": 4,
+  "martingale_mult": 1.5,
+
+  "tp_long_pct": 2.0,
+  "sl_long_pct": 2.0,
+  "tp_short_pct": 2.0,
+  "sl_short_pct": 2.0,
+  "use_tp_sl": true,
+
+  "time_filter_enabled": true,
+  "time_filter_start_hour": 0,
+  "time_filter_end_hour": 7,
+
+  "rules": {
+    "long_entry": [
+      {"left": "hour", "op": ">=", "right": 0},
+      {"left": "hour", "op": "<=", "right": 7},
+      {"left": "rsi", "op": "<", "right": 22},
+      {"left": "low", "op": "<=", "right": "lower_bb"},
+      {"left": "volume", "op": ">", "right": "vol_threshold"}
+    ],
+    "short_entry": [
+      {"left": "hour", "op": ">=", "right": 0},
+      {"left": "hour", "op": "<=", "right": 7},
+      {"left": "rsi", "op": ">", "right": 80},
+      {"left": "high", "op": ">=", "right": "upper_bb"},
+      {"left": "volume", "op": ">", "right": "vol_threshold"}
+    ],
+    "long_exit": [],
+    "short_exit": []
+  }
+}
