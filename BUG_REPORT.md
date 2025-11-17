@@ -1,6 +1,6 @@
 # Strategy & Backtest Calculation Issues
 
-This document summarizes the bugs discovered while reviewing the trading strategy and backtest implementation described in `PROJECT_STRUCTURE.md`.
+This document summarizes the bugs discovered while reviewing the trading strategy and backtest implementation described in `PROJECT_STRUCTURE.md`. The previously reported issues are still reproducible on the current `main` tip, and a couple of additional defects were found during the follow-up review.
 
 ## 1. Pyramiding limit is never reachable
 - **Location**: `llm_trading_system/strategies/indicator_strategy.py`, lines 222-245.
@@ -21,3 +21,13 @@ This document summarizes the bugs discovered while reviewing the trading strateg
 - **Location**: `llm_trading_system/engine/portfolio.py`, lines 47-60.
 - **Problem**: `process_order` closes any open position before opening a new one whenever the desired target size changes, even if the sign (long/short) stays the same. Adjusting from 1.0 → 0.5 long, or adding to 0.5 → 0.75 long, always results in two full fills (close then open).
 - **Impact**: Every size adjustment produces double fees, loses the original entry price, and produces incorrect mark-to-market PnL. This significantly distorts backtests for strategies that change exposure gradually (e.g., when LLM gates scale the size or when pyramiding should add units).
+
+## 5. `base_position_pct` is silently ignored
+- **Location**: `llm_trading_system/strategies/configs.py`, lines 54-58, and `llm_trading_system/strategies/indicator_strategy.py`, lines 250-263.
+- **Problem**: The config exposes both `base_size` (fractional target exposure) and `base_position_pct` (TradingView-style % of equity for the first entry), but the strategy only ever uses `base_size` when sizing trades. `base_position_pct` is never read anywhere in the code path, so changing it in the UI or JSON has no effect.
+- **Impact**: Users following the documentation/UI labels expect position sizing to respect the percentage field, but backtests and live runs ignore it completely, leading to mismatched exposure relative to what was configured.
+
+## 6. CSV timestamps with a trailing `Z` cannot be parsed
+- **Location**: `llm_trading_system/engine/data_feed.py`, lines 28-65.
+- **Problem**: `parse_timestamp` directly calls `datetime.fromisoformat(value)` whenever the timestamp column is not an integer. Python's `datetime.fromisoformat` rejects standard ISO 8601 strings that end with a trailing `Z` (e.g., `2024-01-01T00:00:00Z`), which is the default format produced by TradingView exports referenced elsewhere in the docs/tests.
+- **Impact**: Backtests fed with common ISO timestamps fail with a `ValueError`, forcing users to preprocess CSVs before they can run the engine. This contradicts the documentation that promises drop-in support for TradingView-style data.
