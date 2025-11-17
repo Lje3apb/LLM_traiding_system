@@ -39,7 +39,7 @@ class PortfolioSimulator:
     _position_units: float = 0.0
     _position_open_time: datetime | None = None
     _entry_equity: float = 0.0
-    _last_entry_fee: float = 0.0
+    _total_entry_fees: float = 0.0
 
     def __post_init__(self) -> None:
         self._entry_equity = self.account.equity
@@ -51,13 +51,24 @@ class PortfolioSimulator:
         if abs(target - self.account.position_size) < 1e-9:
             return
 
-        if self.account.position_size != 0.0:
-            self._close_position(bar)
+        exit_price = order.meta.get("exit_price") if order.meta else None
+        current = self.account.position_size
 
-        if target == 0.0:
+        if current == 0.0:
+            if target != 0.0:
+                self._open_position(target, bar)
             return
 
-        self._open_position(target, bar)
+        if target == 0.0:
+            self._close_position(bar, exit_price=exit_price)
+            return
+
+        if current * target < 0.0:
+            self._close_position(bar, exit_price=exit_price)
+            self._open_position(target, bar)
+            return
+
+        self._adjust_position(target, bar)
 
     def mark_to_market(self, bar: Bar) -> float:
         """Update equity based on the latest close price."""
@@ -71,35 +82,41 @@ class PortfolioSimulator:
     def _open_position(self, target: float, bar: Bar) -> None:
         direction = 1.0 if target > 0 else -1.0
         trade_price = self._apply_slippage(bar.close, is_buy=direction > 0)
-        notional = self.account.equity * abs(target)
+        current_equity = self.account.equity
+        notional = current_equity * abs(target)
         units = (notional / trade_price) * direction
         entry_fee = notional * self.fee_rate
 
-        self.account.equity -= entry_fee
+        self.account.equity = current_equity - entry_fee
         self._entry_equity = self.account.equity
         self.account.position_size = target
         self.account.entry_price = trade_price
         self._position_units = units
         self._position_open_time = bar.timestamp
-        self._last_entry_fee = entry_fee
+        self._total_entry_fees = entry_fee
 
-    def _close_position(self, bar: Bar) -> None:
+    def _close_position(self, bar: Bar, *, exit_price: float | None = None) -> None:
         if self.account.entry_price is None or self._position_open_time is None:
             return
         direction = 1.0 if self.account.position_size > 0 else -1.0
-        exit_price = self._apply_slippage(bar.close, is_buy=direction < 0)
-        pnl = self._position_units * (exit_price - self.account.entry_price)
-        exit_fee = abs(self._position_units) * exit_price * self.fee_rate
+        trade_exit_price = (
+            exit_price
+            if exit_price is not None
+            else self._apply_slippage(bar.close, is_buy=direction < 0)
+        )
+        pnl = self._position_units * (trade_exit_price - self.account.entry_price)
+        exit_fee = abs(self._position_units) * trade_exit_price * self.fee_rate
 
         equity_after = self._entry_equity + pnl - exit_fee
+        position_fraction = abs(self.account.position_size)
         trade = Trade(
             open_time=self._position_open_time,
             close_time=bar.timestamp,
             side="long" if self.account.position_size > 0 else "short",
             entry_price=self.account.entry_price,
-            exit_price=exit_price,
-            size=abs(self.account.position_size),
-            pnl=pnl - self._last_entry_fee - exit_fee,
+            exit_price=trade_exit_price,
+            size=position_fraction,
+            pnl=pnl - self._total_entry_fees - exit_fee,
         )
         self.trades.append(trade)
 
@@ -109,7 +126,62 @@ class PortfolioSimulator:
         self._position_units = 0.0
         self._position_open_time = None
         self._entry_equity = self.account.equity
-        self._last_entry_fee = 0.0
+        self._total_entry_fees = 0.0
+
+    def _adjust_position(self, target: float, bar: Bar) -> None:
+        current = self.account.position_size
+        if current == 0.0:
+            self._open_position(target, bar)
+            return
+
+        if abs(target) > abs(current):
+            self._increase_position(target, bar)
+        else:
+            self._decrease_position(target, bar)
+
+    def _increase_position(self, target: float, bar: Bar) -> None:
+        delta_fraction = abs(target) - abs(self.account.position_size)
+        if delta_fraction <= 0:
+            return
+
+        direction = 1.0 if target > 0 else -1.0
+        trade_price = self._apply_slippage(bar.close, is_buy=direction > 0)
+        current_equity = self.account.equity
+        notional = current_equity * delta_fraction
+        units_delta = (notional / trade_price) * direction
+        fee = notional * self.fee_rate
+
+        self.account.equity = current_equity - fee
+        existing_units = self._position_units
+        existing_notional = abs(existing_units) * (self.account.entry_price or trade_price)
+        new_units = existing_units + units_delta
+        new_notional = existing_notional + notional
+        self._position_units = new_units
+        self.account.position_size = target
+        self.account.entry_price = new_notional / abs(new_units)
+        self._entry_equity = self.account.equity
+        self._total_entry_fees += fee
+
+    def _decrease_position(self, target: float, bar: Bar) -> None:
+        delta_fraction = abs(self.account.position_size) - abs(target)
+        if delta_fraction <= 0:
+            return
+
+        direction = 1.0 if self._position_units > 0 else -1.0
+        exit_price = self._apply_slippage(bar.close, is_buy=direction < 0)
+        total_units = abs(self._position_units)
+        if total_units == 0:
+            self.account.position_size = target
+            return
+        units_delta = total_units * (delta_fraction / abs(self.account.position_size))
+        units_delta *= direction
+        realized_pnl = units_delta * (exit_price - self.account.entry_price)
+        fee = abs(units_delta) * exit_price * self.fee_rate
+
+        self._position_units -= units_delta
+        self.account.position_size = target
+        self.account.equity = self.account.equity + realized_pnl - fee
+        self._entry_equity = self.account.equity
 
     def get_open_trades_count(self) -> int:
         """Get count of currently open trades.
