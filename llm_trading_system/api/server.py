@@ -27,6 +27,10 @@ BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
+# Global storage for backtest results (in-memory cache)
+# Key: strategy name, Value: dict with summary, ohlcv_data, trades, data_path
+_backtest_cache: dict[str, dict[str, Any]] = {}
+
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:
@@ -505,6 +509,13 @@ async def ui_run_backtest(
             slippage_bps=slippage_bps,
         )
 
+        # Cache backtest results for chart endpoint
+        _backtest_cache[name] = {
+            "summary": summary,
+            "data_path": data_path,
+            "config": config,
+        }
+
         # Render results
         return templates.TemplateResponse(
             "backtest_result.html",
@@ -518,6 +529,131 @@ async def ui_run_backtest(
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Backtest failed: {type(e).__name__}: {e}"
+        )
+
+
+@app.get("/ui/backtest/{name}/chart-data")
+async def ui_get_backtest_chart_data(name: str) -> JSONResponse:
+    """Web UI: Get chart data for backtest visualization.
+
+    Args:
+        name: Strategy config name
+
+    Returns:
+        JSON response with OHLCV data and trades for Lightweight Charts
+
+    Raises:
+        HTTPException: If backtest data not found
+    """
+    try:
+        # Check if we have cached backtest data
+        if name not in _backtest_cache:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No backtest data found for '{name}'. Please run backtest first."
+            )
+
+        cached_data = _backtest_cache[name]
+        data_path = cached_data["data_path"]
+        summary = cached_data["summary"]
+
+        # Read OHLCV data from CSV
+        import pandas as pd
+        from datetime import datetime, timezone
+
+        df = pd.read_csv(data_path)
+
+        # Convert to Lightweight Charts format
+        ohlcv_data = []
+        for _, row in df.iterrows():
+            # Parse timestamp (handle both Unix seconds and ISO format)
+            ts_str = str(row["timestamp"]).strip()
+            if ts_str.isdigit():
+                # Unix seconds
+                unix_time = int(ts_str)
+            else:
+                # ISO format - parse and convert to Unix timestamp
+                if ts_str.endswith("Z") or ts_str.endswith("z"):
+                    ts_str = ts_str[:-1] + "+00:00"
+                dt = datetime.fromisoformat(ts_str)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                unix_time = int(dt.timestamp())
+
+            ohlcv_data.append({
+                "time": unix_time,
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "volume": float(row.get("volume", 0)),
+            })
+
+        # Extract trades from summary (if available)
+        trades_data = []
+
+        # Re-run backtest to get trades data
+        # (since summary might not include full trade details)
+        from llm_trading_system.engine.backtester import Backtester
+        from llm_trading_system.engine.data_feed import CSVDataFeed
+        from llm_trading_system.strategies import create_strategy_from_config
+
+        config = cached_data["config"]
+        symbol = config.get("symbol", "BTCUSDT")
+        strategy = create_strategy_from_config(config, llm_client=None)
+        data_feed = CSVDataFeed(path=Path(data_path), symbol=symbol)
+
+        backtester = Backtester(
+            strategy=strategy,
+            data_feed=data_feed,
+            initial_equity=summary.get("initial_equity", 10000.0),
+            fee_rate=0.001,
+            slippage_bps=1.0,
+            symbol=symbol,
+        )
+
+        result = backtester.run()
+
+        # Format trades for chart
+        for trade in result.trades:
+            # Parse timestamps
+            entry_ts = trade.open_time
+            exit_ts = trade.close_time
+
+            # Calculate entry/exit Unix timestamps
+            entry_unix = int(entry_ts.timestamp()) if entry_ts else 0
+            exit_unix = int(exit_ts.timestamp()) if exit_ts else 0
+
+            # Calculate bars held
+            bars_held = 0
+            if entry_unix and exit_unix:
+                # Estimate bars based on time difference
+                # (this is approximate - actual bar count would require matching to OHLCV data)
+                time_diff = exit_unix - entry_unix
+                # Assume average bar is 1 hour for estimation
+                bars_held = max(1, time_diff // 3600)
+
+            trades_data.append({
+                "side": trade.side,
+                "entry_time": entry_unix,
+                "entry_price": float(trade.entry_price),
+                "exit_time": exit_unix,
+                "exit_price": float(trade.exit_price) if trade.exit_price else 0,
+                "pnl": float(trade.pnl) if trade.pnl is not None else 0,
+                "bars_held": bars_held,
+            })
+
+        return JSONResponse({
+            "ohlcv": ohlcv_data,
+            "trades": trades_data,
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load chart data: {type(e).__name__}: {e}"
         )
 
 
