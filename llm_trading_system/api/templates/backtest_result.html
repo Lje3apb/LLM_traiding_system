@@ -3,126 +3,843 @@
 {% block title %}Backtest Results - {{ name }} - LLM Trading System{% endblock %}
 
 {% block content %}
+<style>
+    :root {
+        --success-color: #10b981;
+        --danger-color: #ef4444;
+        --warning-color: #f59e0b;
+        --neutral-color: #6b7280;
+        --bg-success: rgba(16, 185, 129, 0.1);
+        --bg-danger: rgba(239, 68, 68, 0.1);
+        --border-color: #e5e7eb;
+        --text-muted: #6b7280;
+    }
+
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+        padding-bottom: 1rem;
+        border-bottom: 2px solid var(--border-color);
+    }
+
+    .page-header h2 {
+        margin: 0;
+        font-size: 1.75rem;
+        font-weight: 600;
+        color: #1f2937;
+    }
+
+    .results-summary {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .results-summary h3 {
+        margin: 0 0 1rem 0;
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #374151;
+    }
+
+    .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+    }
+
+    .metric {
+        display: flex;
+        flex-direction: column;
+        padding: 0.75rem;
+        background: #f9fafb;
+        border-radius: 6px;
+        border: 1px solid var(--border-color);
+    }
+
+    .metric-label {
+        font-size: 0.875rem;
+        color: var(--text-muted);
+        margin-bottom: 0.25rem;
+        font-weight: 500;
+    }
+
+    .metric-value {
+        font-size: 1.125rem;
+        font-weight: 600;
+        color: #111827;
+    }
+
+    .metric-value.positive {
+        color: var(--success-color);
+    }
+
+    .metric-value.negative {
+        color: var(--danger-color);
+    }
+
+    /* Chart Section */
+    .chart-section {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .chart-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .chart-header h3 {
+        margin: 0;
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #374151;
+    }
+
+    .chart-controls {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    .chart-controls button,
+    .chart-controls label {
+        padding: 0.375rem 0.75rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: white;
+        color: #374151;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+
+    .chart-controls button:hover {
+        background: #f3f4f6;
+        border-color: #d1d5db;
+    }
+
+    .chart-controls button.active {
+        background: #3b82f6;
+        color: white;
+        border-color: #3b82f6;
+    }
+
+    .chart-controls label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: pointer;
+    }
+
+    .chart-controls input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+    }
+
+    #chart-container {
+        width: 100%;
+        height: 500px;
+        position: relative;
+    }
+
+    /* Trades Table */
+    .trades-section {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .trades-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .trades-header h3 {
+        margin: 0;
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #374151;
+    }
+
+    .trade-filters {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .trade-filters button {
+        padding: 0.375rem 0.75rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: white;
+        color: #374151;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+
+    .trade-filters button:hover {
+        background: #f3f4f6;
+    }
+
+    .trade-filters button.active {
+        background: #3b82f6;
+        color: white;
+        border-color: #3b82f6;
+    }
+
+    .table-container {
+        overflow-x: auto;
+        margin-top: 1rem;
+    }
+
+    .trades-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.875rem;
+    }
+
+    .trades-table th {
+        background: #f9fafb;
+        padding: 0.75rem 0.5rem;
+        text-align: left;
+        font-weight: 600;
+        color: #374151;
+        border-bottom: 2px solid var(--border-color);
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+    }
+
+    .trades-table th:hover {
+        background: #f3f4f6;
+    }
+
+    .trades-table th.sortable::after {
+        content: ' ⇅';
+        color: #9ca3af;
+        font-size: 0.75rem;
+    }
+
+    .trades-table th.sort-asc::after {
+        content: ' ↑';
+        color: #3b82f6;
+    }
+
+    .trades-table th.sort-desc::after {
+        content: ' ↓';
+        color: #3b82f6;
+    }
+
+    .trades-table td {
+        padding: 0.75rem 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .trades-table tr.profit {
+        background: var(--bg-success);
+    }
+
+    .trades-table tr.loss {
+        background: var(--bg-danger);
+    }
+
+    .trades-table tr:hover {
+        background: #f9fafb;
+        cursor: pointer;
+    }
+
+    .trades-table tr.profit:hover {
+        background: rgba(16, 185, 129, 0.15);
+    }
+
+    .trades-table tr.loss:hover {
+        background: rgba(239, 68, 68, 0.15);
+    }
+
+    .trade-type-long {
+        color: var(--success-color);
+        font-weight: 600;
+    }
+
+    .trade-type-short {
+        color: var(--danger-color);
+        font-weight: 600;
+    }
+
+    .pnl-positive {
+        color: var(--success-color);
+        font-weight: 600;
+    }
+
+    .pnl-negative {
+        color: var(--danger-color);
+        font-weight: 600;
+    }
+
+    .form-actions {
+        display: flex;
+        gap: 1rem;
+        justify-content: flex-start;
+        margin-top: 2rem;
+    }
+
+    .btn {
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        font-weight: 500;
+        text-decoration: none;
+        display: inline-block;
+        transition: all 0.15s;
+        border: none;
+        cursor: pointer;
+    }
+
+    .btn-primary {
+        background: #3b82f6;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #2563eb;
+    }
+
+    .btn-secondary {
+        background: #6b7280;
+        color: white;
+    }
+
+    .btn-secondary:hover {
+        background: #4b5563;
+    }
+
+    .loading {
+        text-align: center;
+        padding: 2rem;
+        color: var(--text-muted);
+    }
+
+    .error {
+        background: var(--bg-danger);
+        color: var(--danger-color);
+        padding: 1rem;
+        border-radius: 6px;
+        margin: 1rem 0;
+    }
+
+    @media (max-width: 768px) {
+        .metrics-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        .page-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 1rem;
+        }
+
+        #chart-container {
+            height: 400px;
+        }
+
+        .chart-controls {
+            flex-wrap: wrap;
+        }
+
+        .trades-table {
+            font-size: 0.75rem;
+        }
+
+        .trades-table th,
+        .trades-table td {
+            padding: 0.5rem 0.25rem;
+        }
+    }
+</style>
+
 <div class="page-header">
     <h2>Backtest Results: {{ name }}</h2>
     <a href="/ui/strategies/{{ name }}/edit" class="btn btn-secondary">Edit Strategy</a>
 </div>
 
-<div class="backtest-results">
-    <div class="results-summary">
-        <h3>Summary</h3>
-        <div class="metrics-grid">
-            <div class="metric">
-                <span class="metric-label">Symbol</span>
-                <span class="metric-value">{{ summary.symbol }}</span>
-            </div>
-            <div class="metric">
-                <span class="metric-label">Bars</span>
-                <span class="metric-value">{{ summary.bars }}</span>
-            </div>
-            <div class="metric">
-                <span class="metric-label">Trades</span>
-                <span class="metric-value">{{ summary.trades }}</span>
-            </div>
-            <div class="metric">
-                <span class="metric-label">P&L</span>
-                <span class="metric-value {% if summary.pnl_pct >= 0 %}positive{% else %}negative{% endif %}">
-                    {{ "+" if summary.pnl_pct >= 0 else "" }}{{ "%.2f"|format(summary.pnl_pct) }}%
-                </span>
-            </div>
-            <div class="metric">
-                <span class="metric-label">P&L (Absolute)</span>
-                <span class="metric-value {% if summary.pnl_abs >= 0 %}positive{% else %}negative{% endif %}">
-                    ${{ "%.2f"|format(summary.pnl_abs) }}
-                </span>
-            </div>
-            <div class="metric">
-                <span class="metric-label">Max Drawdown</span>
-                <span class="metric-value negative">{{ "%.2f"|format(summary.max_drawdown) }}%</span>
-            </div>
-            <div class="metric">
-                <span class="metric-label">Win Rate</span>
-                <span class="metric-value">{{ "%.1f"|format(summary.win_rate) }}%</span>
-            </div>
-            <div class="metric">
-                <span class="metric-label">Avg Trade P&L</span>
-                <span class="metric-value {% if summary.avg_trade_pnl >= 0 %}positive{% else %}negative{% endif %}">
-                    ${{ "%.2f"|format(summary.avg_trade_pnl) }}
-                </span>
-            </div>
-            <div class="metric">
-                <span class="metric-label">Final Equity</span>
-                <span class="metric-value">${{ "%.2f"|format(summary.final_equity) }}</span>
-            </div>
+<div class="results-summary">
+    <h3>Summary</h3>
+    <div class="metrics-grid">
+        <div class="metric">
+            <span class="metric-label">Symbol</span>
+            <span class="metric-value">{{ summary.symbol }}</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Bars</span>
+            <span class="metric-value">{{ summary.bars }}</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Trades</span>
+            <span class="metric-value">{{ summary.trades }}</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">P&L</span>
+            <span class="metric-value {% if summary.pnl_pct >= 0 %}positive{% else %}negative{% endif %}">
+                {{ "+" if summary.pnl_pct >= 0 else "" }}{{ "%.2f"|format(summary.pnl_pct) }}%
+            </span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">P&L (Absolute)</span>
+            <span class="metric-value {% if summary.pnl_abs >= 0 %}positive{% else %}negative{% endif %}">
+                ${{ "%.2f"|format(summary.pnl_abs) }}
+            </span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Max Drawdown</span>
+            <span class="metric-value negative">{{ "%.2f"|format(summary.max_drawdown) }}%</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Win Rate</span>
+            <span class="metric-value">{{ "%.1f"|format(summary.win_rate) }}%</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Avg Trade P&L</span>
+            <span class="metric-value {% if summary.avg_trade_pnl >= 0 %}positive{% else %}negative{% endif %}">
+                ${{ "%.2f"|format(summary.avg_trade_pnl) }}
+            </span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Final Equity</span>
+            <span class="metric-value">${{ "%.2f"|format(summary.final_equity) }}</span>
         </div>
     </div>
+</div>
 
-    {% if summary.equity_curve %}
-    <div class="equity-curve">
-        <h3>Equity Curve</h3>
-        <div class="chart-container">
-            <canvas id="equityChart"></canvas>
+<div class="chart-section">
+    <div class="chart-header">
+        <h3>Price Chart & Trades</h3>
+        <div class="chart-controls">
+            <button class="time-range-btn" data-range="1d">1d</button>
+            <button class="time-range-btn" data-range="7d">7d</button>
+            <button class="time-range-btn" data-range="1m">1m</button>
+            <button class="time-range-btn active" data-range="all">All</button>
+            <label>
+                <input type="checkbox" id="toggle-trades" checked>
+                Show Trades
+            </label>
         </div>
     </div>
+    <div id="chart-container"></div>
+    <div id="chart-loading" class="loading">Loading chart data...</div>
+</div>
 
-    <script>
-        // Simple ASCII-style equity curve visualization
-        const equityCurve = {{ summary.equity_curve | tojson }};
-        const canvas = document.getElementById('equityChart');
-        const ctx = canvas.getContext('2d');
+<div class="trades-section">
+    <div class="trades-header">
+        <h3>Trades</h3>
+        <div class="trade-filters">
+            <button class="filter-btn active" data-filter="all">All</button>
+            <button class="filter-btn" data-filter="long">Long</button>
+            <button class="filter-btn" data-filter="short">Short</button>
+            <button class="filter-btn" data-filter="profit">Profitable</button>
+            <button class="filter-btn" data-filter="loss">Loss</button>
+        </div>
+    </div>
+    <div class="table-container">
+        <table class="trades-table">
+            <thead>
+                <tr>
+                    <th class="sortable" data-sort="index">#</th>
+                    <th class="sortable" data-sort="type">Type</th>
+                    <th class="sortable" data-sort="entry_time">Entry Time</th>
+                    <th class="sortable" data-sort="entry_price">Entry Price</th>
+                    <th class="sortable" data-sort="exit_time">Exit Time</th>
+                    <th class="sortable" data-sort="exit_price">Exit Price</th>
+                    <th class="sortable" data-sort="pnl_pct">PnL %</th>
+                    <th class="sortable" data-sort="pnl_abs">PnL $</th>
+                    <th class="sortable" data-sort="bars">Bars</th>
+                </tr>
+            </thead>
+            <tbody id="trades-table-body">
+                <tr><td colspan="9" class="loading">Loading trades...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
 
-        // Set canvas size
-        canvas.width = 800;
-        canvas.height = 300;
+<div class="form-actions">
+    <a href="/ui/" class="btn btn-secondary">Back to Strategies</a>
+    <a href="/ui/strategies/{{ name }}/backtest" class="btn btn-primary">Run Again</a>
+</div>
 
-        // Calculate scale
-        const minEquity = Math.min(...equityCurve);
-        const maxEquity = Math.max(...equityCurve);
-        const range = maxEquity - minEquity;
-        const padding = 40;
+<!-- Lightweight Charts Library -->
+<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
 
-        // Draw axes
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(padding, padding);
-        ctx.lineTo(padding, canvas.height - padding);
-        ctx.lineTo(canvas.width - padding, canvas.height - padding);
-        ctx.stroke();
+<script>
+    // Global state
+    let chartInstance = null;
+    let candlestickSeries = null;
+    let volumeSeries = null;
+    let chartData = null;
+    let tradesData = null;
+    let currentFilter = 'all';
+    let currentSort = { column: 'index', direction: 'asc' };
 
-        // Draw equity curve
-        ctx.strokeStyle = equityCurve[equityCurve.length - 1] >= equityCurve[0] ? '#28a745' : '#dc3545';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', async function() {
+        await loadChartData();
+        setupEventListeners();
+    });
 
-        const xStep = (canvas.width - 2 * padding) / (equityCurve.length - 1);
-        const yScale = (canvas.height - 2 * padding) / range;
+    // Load chart and trades data
+    async function loadChartData() {
+        try {
+            const response = await fetch('/ui/backtest/{{ name }}/chart-data');
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            chartData = data;
+            tradesData = data.trades || [];
 
-        equityCurve.forEach((equity, i) => {
-            const x = padding + i * xStep;
-            const y = canvas.height - padding - (equity - minEquity) * yScale;
+            document.getElementById('chart-loading').style.display = 'none';
+            initializeChart(data.ohlcv, data.trades);
+            renderTradesTable(tradesData);
+        } catch (error) {
+            console.error('Failed to load chart data:', error);
+            document.getElementById('chart-loading').innerHTML =
+                `<div class="error">Failed to load chart data: ${error.message}</div>`;
+        }
+    }
 
-            if (i === 0) {
-                ctx.moveTo(x, y);
-            } else {
-                ctx.lineTo(x, y);
+    // Initialize Lightweight Charts
+    function initializeChart(ohlcv, trades) {
+        const container = document.getElementById('chart-container');
+
+        chartInstance = LightweightCharts.createChart(container, {
+            width: container.clientWidth,
+            height: 500,
+            layout: {
+                background: { color: '#ffffff' },
+                textColor: '#333',
+            },
+            grid: {
+                vertLines: { color: '#f0f0f0' },
+                horzLines: { color: '#f0f0f0' },
+            },
+            crosshair: {
+                mode: LightweightCharts.CrosshairMode.Normal,
+            },
+            rightPriceScale: {
+                borderColor: '#e0e0e0',
+            },
+            timeScale: {
+                borderColor: '#e0e0e0',
+                timeVisible: true,
+                secondsVisible: false,
+            },
+        });
+
+        // Add candlestick series
+        candlestickSeries = chartInstance.addCandlestickSeries({
+            upColor: '#10b981',
+            downColor: '#ef4444',
+            borderUpColor: '#10b981',
+            borderDownColor: '#ef4444',
+            wickUpColor: '#10b981',
+            wickDownColor: '#ef4444',
+        });
+
+        candlestickSeries.setData(ohlcv);
+
+        // Add volume series
+        volumeSeries = chartInstance.addHistogramSeries({
+            color: '#9ca3af',
+            priceFormat: {
+                type: 'volume',
+            },
+            priceScaleId: '',
+            scaleMargins: {
+                top: 0.8,
+                bottom: 0,
+            },
+        });
+
+        const volumeData = ohlcv.map(d => ({
+            time: d.time,
+            value: d.volume || 0,
+            color: d.close >= d.open ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'
+        }));
+        volumeSeries.setData(volumeData);
+
+        // Add trade markers
+        updateTradeMarkers(trades);
+
+        // Auto-resize
+        window.addEventListener('resize', () => {
+            chartInstance.applyOptions({
+                width: container.clientWidth
+            });
+        });
+
+        // Fit content
+        chartInstance.timeScale().fitContent();
+    }
+
+    // Update trade markers on chart
+    function updateTradeMarkers(trades) {
+        if (!candlestickSeries || !trades) return;
+
+        const markers = [];
+
+        trades.forEach(trade => {
+            const isLong = trade.side.toUpperCase() === 'LONG';
+
+            // Entry marker
+            markers.push({
+                time: trade.entry_time,
+                position: isLong ? 'belowBar' : 'aboveBar',
+                color: isLong ? '#10b981' : '#ef4444',
+                shape: isLong ? 'arrowUp' : 'arrowDown',
+                text: `${trade.side} Entry`,
+            });
+
+            // Exit marker
+            if (trade.exit_time) {
+                markers.push({
+                    time: trade.exit_time,
+                    position: isLong ? 'aboveBar' : 'belowBar',
+                    color: isLong ? '#10b981' : '#ef4444',
+                    shape: isLong ? 'arrowDown' : 'arrowUp',
+                    text: `${trade.side} Exit`,
+                });
             }
         });
 
-        ctx.stroke();
+        candlestickSeries.setMarkers(markers);
+    }
 
-        // Draw labels
-        ctx.fillStyle = '#333';
-        ctx.font = '12px monospace';
-        ctx.fillText('$' + minEquity.toFixed(2), 5, canvas.height - padding + 5);
-        ctx.fillText('$' + maxEquity.toFixed(2), 5, padding);
-        ctx.fillText('Bars: ' + equityCurve.length, canvas.width - 100, canvas.height - 10);
-    </script>
-    {% endif %}
+    // Render trades table
+    function renderTradesTable(trades) {
+        const tbody = document.getElementById('trades-table-body');
 
-    <div class="form-actions">
-        <a href="/ui/" class="btn btn-secondary">Back to Strategies</a>
-        <a href="/ui/strategies/{{ name }}/backtest" class="btn btn-primary">Run Again</a>
-    </div>
-</div>
+        if (!trades || trades.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: #6b7280;">No trades to display</td></tr>';
+            return;
+        }
+
+        // Apply filter
+        let filteredTrades = filterTrades(trades, currentFilter);
+
+        // Apply sort
+        filteredTrades = sortTrades(filteredTrades, currentSort.column, currentSort.direction);
+
+        tbody.innerHTML = filteredTrades.map((trade, idx) => {
+            const pnlPct = ((trade.exit_price - trade.entry_price) / trade.entry_price * 100) * (trade.side.toUpperCase() === 'LONG' ? 1 : -1);
+            const pnlAbs = trade.pnl || 0;
+            const isProfit = pnlAbs > 0;
+
+            return `
+                <tr class="${isProfit ? 'profit' : 'loss'}" data-trade-index="${idx}">
+                    <td>${idx + 1}</td>
+                    <td class="trade-type-${trade.side.toLowerCase()}">${trade.side.toUpperCase()}</td>
+                    <td>${formatDateTime(trade.entry_time)}</td>
+                    <td>$${trade.entry_price.toFixed(2)}</td>
+                    <td>${formatDateTime(trade.exit_time)}</td>
+                    <td>$${trade.exit_price.toFixed(2)}</td>
+                    <td class="${isProfit ? 'pnl-positive' : 'pnl-negative'}">${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%</td>
+                    <td class="${isProfit ? 'pnl-positive' : 'pnl-negative'}">${pnlAbs >= 0 ? '+' : ''}$${pnlAbs.toFixed(2)}</td>
+                    <td>${trade.bars_held || '-'}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    // Filter trades
+    function filterTrades(trades, filter) {
+        switch (filter) {
+            case 'long':
+                return trades.filter(t => t.side.toUpperCase() === 'LONG');
+            case 'short':
+                return trades.filter(t => t.side.toUpperCase() === 'SHORT');
+            case 'profit':
+                return trades.filter(t => (t.pnl || 0) > 0);
+            case 'loss':
+                return trades.filter(t => (t.pnl || 0) < 0);
+            default:
+                return trades;
+        }
+    }
+
+    // Sort trades
+    function sortTrades(trades, column, direction) {
+        const sorted = [...trades].sort((a, b) => {
+            let aVal, bVal;
+
+            switch (column) {
+                case 'type':
+                    aVal = a.side;
+                    bVal = b.side;
+                    break;
+                case 'entry_time':
+                    aVal = new Date(a.entry_time).getTime();
+                    bVal = new Date(b.entry_time).getTime();
+                    break;
+                case 'exit_time':
+                    aVal = new Date(a.exit_time).getTime();
+                    bVal = new Date(b.exit_time).getTime();
+                    break;
+                case 'entry_price':
+                    aVal = a.entry_price;
+                    bVal = b.entry_price;
+                    break;
+                case 'exit_price':
+                    aVal = a.exit_price;
+                    bVal = b.exit_price;
+                    break;
+                case 'pnl_pct':
+                    aVal = ((a.exit_price - a.entry_price) / a.entry_price) * (a.side.toUpperCase() === 'LONG' ? 1 : -1);
+                    bVal = ((b.exit_price - b.entry_price) / b.entry_price) * (b.side.toUpperCase() === 'LONG' ? 1 : -1);
+                    break;
+                case 'pnl_abs':
+                    aVal = a.pnl || 0;
+                    bVal = b.pnl || 0;
+                    break;
+                case 'bars':
+                    aVal = a.bars_held || 0;
+                    bVal = b.bars_held || 0;
+                    break;
+                default:
+                    return 0;
+            }
+
+            if (aVal < bVal) return direction === 'asc' ? -1 : 1;
+            if (aVal > bVal) return direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+        return sorted;
+    }
+
+    // Format datetime
+    function formatDateTime(timestamp) {
+        if (!timestamp) return '-';
+        const date = new Date(timestamp);
+        return date.toLocaleString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+
+    // Setup event listeners
+    function setupEventListeners() {
+        // Time range buttons
+        document.querySelectorAll('.time-range-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.time-range-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+
+                const range = this.dataset.range;
+                applyTimeRange(range);
+            });
+        });
+
+        // Toggle trades checkbox
+        document.getElementById('toggle-trades').addEventListener('change', function() {
+            if (this.checked) {
+                updateTradeMarkers(tradesData);
+            } else {
+                candlestickSeries.setMarkers([]);
+            }
+        });
+
+        // Trade filter buttons
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+
+                currentFilter = this.dataset.filter;
+                renderTradesTable(tradesData);
+            });
+        });
+
+        // Table sorting
+        document.querySelectorAll('.trades-table th.sortable').forEach(th => {
+            th.addEventListener('click', function() {
+                const column = this.dataset.sort;
+
+                if (currentSort.column === column) {
+                    currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSort.column = column;
+                    currentSort.direction = 'asc';
+                }
+
+                // Update UI
+                document.querySelectorAll('.trades-table th').forEach(h => {
+                    h.classList.remove('sort-asc', 'sort-desc');
+                });
+                this.classList.add(`sort-${currentSort.direction}`);
+
+                renderTradesTable(tradesData);
+            });
+        });
+
+        // Trade row click - highlight on chart
+        document.getElementById('trades-table-body').addEventListener('click', function(e) {
+            const row = e.target.closest('tr[data-trade-index]');
+            if (row) {
+                const idx = parseInt(row.dataset.tradeIndex);
+                const trade = tradesData[idx];
+                if (trade && chartInstance) {
+                    chartInstance.timeScale().setVisibleLogicalRange({
+                        from: trade.entry_time - 86400, // 1 day before
+                        to: (trade.exit_time || trade.entry_time) + 86400 // 1 day after
+                    });
+                }
+            }
+        });
+    }
+
+    // Apply time range filter
+    function applyTimeRange(range) {
+        if (!chartInstance || !chartData) return;
+
+        const now = Date.now() / 1000;
+        let from;
+
+        switch (range) {
+            case '1d':
+                from = now - 86400;
+                break;
+            case '7d':
+                from = now - 7 * 86400;
+                break;
+            case '1m':
+                from = now - 30 * 86400;
+                break;
+            case 'all':
+            default:
+                chartInstance.timeScale().fitContent();
+                return;
+        }
+
+        chartInstance.timeScale().setVisibleRange({
+            from: from,
+            to: now
+        });
+    }
+</script>
 {% endblock %}
