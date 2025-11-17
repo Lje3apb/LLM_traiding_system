@@ -614,6 +614,11 @@ async def ui_get_backtest_chart_data(name: str) -> JSONResponse:
 
         result = backtester.run()
 
+        # Detect bar interval from OHLCV data
+        interval_seconds = 3600  # default 1 hour
+        if len(ohlcv_data) >= 2:
+            interval_seconds = ohlcv_data[1]["time"] - ohlcv_data[0]["time"]
+
         # Format trades for chart
         for trade in result.trades:
             # Parse timestamps
@@ -624,14 +629,11 @@ async def ui_get_backtest_chart_data(name: str) -> JSONResponse:
             entry_unix = int(entry_ts.timestamp()) if entry_ts else 0
             exit_unix = int(exit_ts.timestamp()) if exit_ts else 0
 
-            # Calculate bars held
+            # Calculate bars held using detected interval
             bars_held = 0
-            if entry_unix and exit_unix:
-                # Estimate bars based on time difference
-                # (this is approximate - actual bar count would require matching to OHLCV data)
+            if entry_unix and exit_unix and interval_seconds > 0:
                 time_diff = exit_unix - entry_unix
-                # Assume average bar is 1 hour for estimation
-                bars_held = max(1, time_diff // 3600)
+                bars_held = max(1, time_diff // interval_seconds)
 
             trades_data.append({
                 "side": trade.side,

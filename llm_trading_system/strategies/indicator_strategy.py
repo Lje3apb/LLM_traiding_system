@@ -281,9 +281,10 @@ class IndicatorStrategy(Strategy):
         Returns:
             Position size as fraction of equity
         """
-        # TradingView-style: step = closedtrades - opentrades
-        step = self._closed_trades_count - self._open_positions_count
-        step = max(0, step)
+        # Martingale step = number of closed positions
+        # This ensures the first position uses base size (step=0),
+        # and each subsequent position (after close) scales up
+        step = min(self._closed_trades_count, self.config.max_martingale_step)
 
         base_fraction = self._base_position_fraction()
         if self.config.use_martingale:

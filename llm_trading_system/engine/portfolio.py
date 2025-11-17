@@ -40,12 +40,22 @@ class PortfolioSimulator:
     _position_open_time: datetime | None = None
     _entry_equity: float = 0.0
     _total_entry_fees: float = 0.0
+    _is_bankrupt: bool = False
 
     def __post_init__(self) -> None:
         self._entry_equity = self.account.equity
 
     def process_order(self, order: Order, bar: Bar) -> None:
         """Execute a target order, handling entries and exits."""
+
+        # If bankrupt, ignore all orders except closing existing position
+        if self._is_bankrupt:
+            if self.account.position_size != 0.0:
+                # Allow closing existing position
+                target = self._order_to_target(order)
+                if target == 0.0:
+                    self._close_position(bar)
+            return
 
         target = self._order_to_target(order)
         if abs(target - self.account.position_size) < 1e-9:
@@ -103,6 +113,18 @@ class PortfolioSimulator:
         entry_fee = notional * self.fee_rate
 
         self.account.equity = current_equity - entry_fee
+
+        # Check for bankruptcy (margin call)
+        if self.account.equity <= 0:
+            self._is_bankrupt = True
+            self.account.equity = 0.0
+            self.account.position_size = 0.0
+            self.account.entry_price = None
+            self._position_units = 0.0
+            self._position_open_time = None
+            self._total_entry_fees = 0.0
+            return
+
         self._entry_equity = self.account.equity
         self.account.position_size = target
         self.account.entry_price = trade_price
@@ -189,6 +211,18 @@ class PortfolioSimulator:
         fee = notional * self.fee_rate
 
         self.account.equity = current_equity - fee
+
+        # Check for bankruptcy
+        if self.account.equity <= 0:
+            self._is_bankrupt = True
+            self.account.equity = 0.0
+            self.account.position_size = 0.0
+            self.account.entry_price = None
+            self._position_units = 0.0
+            self._position_open_time = None
+            self._total_entry_fees = 0.0
+            return
+
         existing_units = self._position_units
         existing_notional = abs(existing_units) * (self.account.entry_price or trade_price)
         new_units = existing_units + units_delta
@@ -216,6 +250,12 @@ class PortfolioSimulator:
         if total_units == 0:
             self.account.position_size = target
             return
+
+        # Prevent division by zero
+        if abs(current_fraction) < 1e-9:
+            self.account.position_size = target
+            return
+
         units_delta = total_units * (delta_fraction / abs(current_fraction))
         units_delta *= direction
         realized_pnl = units_delta * (exit_price - self.account.entry_price)
@@ -243,12 +283,18 @@ class PortfolioSimulator:
         return fraction if self._position_units > 0 else -fraction
 
     def _rebase_position(self, price: float) -> None:
+        """Rebase position to current price before adjustments.
+
+        This updates both equity and entry price to reflect current unrealized P&L,
+        ensuring that subsequent sizing calculations use the correct equity base
+        and future P&L calculations start from this rebased point.
+        """
         if self.account.entry_price is None or self.account.position_size == 0.0:
             return
         equity = self._equity_at_price(price)
         self.account.equity = equity
         self._entry_equity = equity
-        self.account.entry_price = price
+        self.account.entry_price = price  # Update entry price to prevent double-counting P&L
 
     def get_open_trades_count(self) -> int:
         """Get count of currently open trades.
