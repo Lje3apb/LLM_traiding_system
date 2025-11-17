@@ -95,6 +95,11 @@ def _evaluate_expression(
     - "vol_ma * 1.5"
     - "vol_ma / 2"
     - "atr * 2.0"
+    - "rsi - 30"
+    - "rsi + -5" (negative numbers)
+
+    IMPORTANT: Only supports single binary operations (no operator precedence).
+    For complex expressions like "2 + 3 * 4", use parentheses or separate rules.
 
     Args:
         expr: Expression string
@@ -105,7 +110,7 @@ def _evaluate_expression(
     """
     expr = expr.strip()
 
-    # Try multiplication
+    # Try multiplication (highest precedence for simple cases)
     if "*" in expr:
         parts = expr.split("*", 1)
         if len(parts) == 2:
@@ -132,14 +137,26 @@ def _evaluate_expression(
             if left is not None and right is not None:
                 return left + right
 
-    # Try subtraction (be careful with negative numbers)
-    if "-" in expr and not expr.startswith("-"):
-        parts = expr.split("-", 1)
-        if len(parts) == 2:
-            left = _get_value_from_str(parts[0].strip(), indicators)
-            right = _get_value_from_str(parts[1].strip(), indicators)
-            if left is not None and right is not None:
-                return left - right
+    # Try subtraction
+    # Handle both "a - b" and "a - -b" cases
+    # Find the last occurrence of '-' that's not part of a number
+    minus_positions = [i for i, c in enumerate(expr) if c == '-']
+    for pos in reversed(minus_positions):
+        # Skip if it's at the start (negative number)
+        if pos == 0:
+            continue
+        # Skip if previous char is an operator (e.g., "a + -5")
+        if pos > 0 and expr[pos - 1] in "+-*/":
+            continue
+
+        # This '-' is a subtraction operator
+        left_str = expr[:pos].strip()
+        right_str = expr[pos + 1:].strip()
+
+        left = _get_value_from_str(left_str, indicators)
+        right = _get_value_from_str(right_str, indicators)
+        if left is not None and right is not None:
+            return left - right
 
     # No expression found, return simple value
     return _get_value_from_str(expr, indicators)

@@ -57,6 +57,11 @@ def rsi(values: Sequence[float], length: int = 14) -> float | None:
 
     Returns:
         RSI value (0-100) or None if insufficient data
+
+    Notes:
+        - Returns 100.0 if all changes are gains (price only goes up)
+        - Returns 0.0 if all changes are losses (price only goes down)
+        - Returns None if no price changes occur (flat price)
     """
     if length <= 0 or len(values) < length + 1:
         return None
@@ -74,8 +79,14 @@ def rsi(values: Sequence[float], length: int = 14) -> float | None:
     avg_gain = sum(gains) / length
     avg_loss = sum(losses) / length
 
+    # Edge cases
     if avg_loss == 0:
-        return 100.0 if avg_gain > 0 else 50.0
+        # All gains or no movement
+        return 100.0 if avg_gain > 0 else None  # Changed: None for flat price
+
+    if avg_gain == 0:
+        # All losses
+        return 0.0
 
     rs = avg_gain / avg_loss
     rsi_val = 100.0 - (100.0 / (1.0 + rs))
@@ -119,17 +130,26 @@ def macd(
     if len(values) < slow + signal - 1:
         return macd_line, None, None
 
-    # Build MACD history
+    # Build MACD history incrementally using EMAState for efficiency
+    # Instead of recalculating EMA from scratch for each point (O(n²)),
+    # we use stateful EMA calculation (O(n))
+    fast_ema_state = EMAState(fast)
+    slow_ema_state = EMAState(slow)
     macd_history = []
-    for i in range(slow, len(values) + 1):
-        f_ema = ema(values[:i], fast)
-        s_ema = ema(values[:i], slow)
-        if f_ema is not None and s_ema is not None:
-            macd_history.append(f_ema - s_ema)
+
+    # Warm up both EMAs and build MACD history
+    for i, value in enumerate(values):
+        f = fast_ema_state.update(value)
+        s = slow_ema_state.update(value)
+
+        # Once both EMAs are ready, compute MACD value
+        if f is not None and s is not None:
+            macd_history.append(f - s)
 
     if len(macd_history) < signal:
         return macd_line, None, None
 
+    # Calculate signal line as EMA of MACD history
     signal_line = ema(macd_history, signal)
     histogram = macd_line - signal_line if signal_line is not None else None
 
@@ -408,8 +428,12 @@ class RSIState:
         avg_gain = sum(self.gains) / self.length
         avg_loss = sum(self.losses) / self.length
 
+        # Edge cases (match batch RSI behavior)
         if avg_loss == 0:
-            return 100.0 if avg_gain > 0 else 50.0
+            return 100.0 if avg_gain > 0 else None
+
+        if avg_gain == 0:
+            return 0.0
 
         rs = avg_gain / avg_loss
         rsi_val = 100.0 - (100.0 / (1.0 + rs))
