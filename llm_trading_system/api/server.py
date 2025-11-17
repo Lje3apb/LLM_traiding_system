@@ -297,6 +297,17 @@ async def ui_save_strategy(
     base_size: float = Form(...),
     allow_long: bool = Form(False),
     allow_short: bool = Form(False),
+    # Risk / Money Management
+    base_position_pct: float = Form(10.0),
+    pyramiding: int = Form(1),
+    use_martingale: bool = Form(False),
+    martingale_mult: float = Form(1.5),
+    tp_long_pct: float = Form(2.0),
+    sl_long_pct: float = Form(2.0),
+    tp_short_pct: float = Form(2.0),
+    sl_short_pct: float = Form(2.0),
+    use_tp_sl: bool = Form(False),
+    # Indicator parameters
     ema_fast_len: int = Form(...),
     ema_slow_len: int = Form(...),
     rsi_len: int = Form(...),
@@ -306,11 +317,13 @@ async def ui_save_strategy(
     bb_std: float = Form(...),
     atr_len: int = Form(...),
     adx_len: int = Form(...),
+    # LLM parameters
     k_max: float = Form(2.0),
     llm_horizon_hours: int = Form(24),
     llm_min_prob_edge: float = Form(0.55),
     llm_min_trend_strength: float = Form(0.6),
     llm_refresh_interval_bars: int = Form(60),
+    # Trading rules
     rules_long_entry: str = Form("[]"),
     rules_short_entry: str = Form("[]"),
     rules_long_exit: str = Form("[]"),
@@ -349,6 +362,17 @@ async def ui_save_strategy(
         "base_size": base_size,
         "allow_long": allow_long,
         "allow_short": allow_short,
+        # Risk / Money Management
+        "base_position_pct": base_position_pct,
+        "pyramiding": pyramiding,
+        "use_martingale": use_martingale,
+        "martingale_mult": martingale_mult,
+        "tp_long_pct": tp_long_pct,
+        "sl_long_pct": sl_long_pct,
+        "tp_short_pct": tp_short_pct,
+        "sl_short_pct": sl_short_pct,
+        "use_tp_sl": use_tp_sl,
+        # Indicator parameters
         "ema_fast_len": ema_fast_len,
         "ema_slow_len": ema_slow_len,
         "rsi_len": rsi_len,
@@ -358,11 +382,13 @@ async def ui_save_strategy(
         "bb_std": bb_std,
         "atr_len": atr_len,
         "adx_len": adx_len,
+        # LLM parameters
         "k_max": k_max,
         "llm_horizon_hours": llm_horizon_hours,
         "llm_min_prob_edge": llm_min_prob_edge,
         "llm_min_trend_strength": llm_min_trend_strength,
         "llm_refresh_interval_bars": llm_refresh_interval_bars,
+        # Trading rules
         "rules": {
             "long_entry": long_entry,
             "short_entry": short_entry,

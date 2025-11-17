@@ -698,28 +698,94 @@ shortCond = inTime and (rsi > 80) and (high >= upperBB) and (volume > volMA * vo
 
 #### Шаг 4: Перенос логики пирамидинга и мартингейла
 
-В Pine Script:
+В Pine Script стратегии часто используют динамическое изменение размера позиции в зависимости от количества закрытых и открытых сделок:
+
 ```pinescript
 step = strategy.closedtrades - strategy.opentrades
 qty = math.pow(mult, step)
 ```
 
-В системе:
+В системе LLM Trading System эта логика **реализована автоматически** в методе `_calculate_position_size()` класса `IndicatorStrategy`.
+
+##### Параметры управления позицией и мартингейлом
+
+Система поддерживает следующие параметры для управления размером позиций (совместимые с TradingView):
+
+**`base_position_pct`** (float, по умолчанию `10.0`)
+- Базовый процент эквити для первой входной позиции
+- Например, при `base_position_pct = 10.0` и эквити $10000, первая позиция будет $1000 (10%)
+
+**`pyramiding`** (int, по умолчанию `1`)
+- Максимальное количество одновременных входов в одном направлении
+- Аналог параметра `pyramiding` в TradingView
+- `pyramiding = 1` — одна позиция одновременно (без усреднения)
+- `pyramiding = 4` — до 4 одновременных позиций
+
+**`use_martingale`** (bool, по умолчанию `False`)
+- Включает/выключает мартингейл-скалирование размера позиции
+- Если `False`, все позиции будут одинакового размера (`base_position_pct`)
+- Если `True`, размер позиции увеличивается по формуле с множителем
+
+**`martingale_mult`** (float, по умолчанию `1.0`)
+- Множитель для мартингейла
+- Используется только если `use_martingale = True`
+- Формула: `size_factor = martingale_mult ** step`, где `step = max(0, closed_trades - open_trades)`
+- Примеры:
+  - `martingale_mult = 1.0` — без мартингейла, все позиции одинаковые
+  - `martingale_mult = 1.5` — каждая позиция в 1.5 раза больше: 1x, 1.5x, 2.25x, 3.375x...
+  - `martingale_mult = 2.0` — каждая позиция удваивается: 1x, 2x, 4x, 8x...
+
+##### Формула расчета размера позиции
+
 ```python
+# TradingView-style: step = closedtrades - opentrades
 step = self._closed_trades_count - self._open_positions_count
-size = self.config.base_size * (self.config.martingale_mult ** step)
+step = max(0, step)  # Ограничиваем снизу нулем
+
+# Расчет множителя
+if self.config.use_martingale:
+    size_factor = self.config.martingale_mult ** step
+else:
+    size_factor = 1.0
+
+# Итоговый размер позиции
+position_pct = self.config.base_position_pct * size_factor
+size = position_pct / 100.0  # Преобразуем в долю (0.0 - 1.0)
 ```
 
-**Это реализовано автоматически** в методе `_calculate_position_size()` класса `IndicatorStrategy`.
+##### Пример конфигурации с мартингейлом
 
-Параметры в конфиге:
 ```json
 {
-  "base_size": 0.10,
-  "martingale_mult": 1.5,
-  "pyramiding": 4
+  "base_position_pct": 10.0,
+  "pyramiding": 4,
+  "use_martingale": true,
+  "martingale_mult": 1.5
 }
 ```
+
+При такой конфигурации:
+- Первая позиция: 10% эквити
+- Вторая позиция (если первая в убытке): 10% × 1.5 = 15% эквити
+- Третья позиция: 10% × 1.5² = 22.5% эквити
+- Четвертая позиция: 10% × 1.5³ = 33.75% эквити
+- Максимум 4 одновременные позиции (pyramiding = 4)
+
+##### Пример конфигурации без мартингейла (фиксированный размер)
+
+```json
+{
+  "base_position_pct": 15.0,
+  "pyramiding": 3,
+  "use_martingale": false,
+  "martingale_mult": 1.0
+}
+```
+
+При такой конфигурации:
+- Все позиции будут по 15% эквити
+- Максимум 3 одновременные позиции
+- Мартингейл отключен — безопаснее для риск-менеджмента
 
 #### Шаг 5: Перенос Take Profit / Stop Loss
 
@@ -770,7 +836,9 @@ self._sl_price = self._entry_price * (1 - self.config.sl_long_pct / 100)
   "allow_long": true,
   "allow_short": true,
 
+  "base_position_pct": 10.0,
   "pyramiding": 4,
+  "use_martingale": true,
   "martingale_mult": 1.5,
 
   "tp_long_pct": 2.0,

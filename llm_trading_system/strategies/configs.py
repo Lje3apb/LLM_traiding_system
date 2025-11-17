@@ -52,7 +52,9 @@ class IndicatorStrategyConfig:
     base_size: float = 0.01  # Base position size as fraction of equity
 
     # Pyramiding and martingale parameters (TradingView-style)
+    base_position_pct: float = 10.0  # Base position % of equity for first entry
     pyramiding: int = 1  # Maximum number of pyramid entries
+    use_martingale: bool = False  # Enable martingale scaling
     martingale_mult: float = 1.0  # Martingale multiplier (1.0 = no martingale)
 
     # Take Profit / Stop Loss parameters (percentage-based)

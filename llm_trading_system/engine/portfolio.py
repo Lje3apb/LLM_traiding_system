@@ -111,6 +111,22 @@ class PortfolioSimulator:
         self._entry_equity = self.account.equity
         self._last_entry_fee = 0.0
 
+    def get_open_trades_count(self) -> int:
+        """Get count of currently open trades.
+
+        Returns:
+            1 if position is open, 0 if flat
+        """
+        return 1 if self.account.position_size != 0.0 else 0
+
+    def get_closed_trades_count(self) -> int:
+        """Get count of closed trades.
+
+        Returns:
+            Number of completed trades
+        """
+        return len(self.trades)
+
     def _apply_slippage(self, price: float, *, is_buy: bool) -> float:
         slip = price * (self.slippage_bps / 10_000)
         return price + slip if is_buy else price - slip
