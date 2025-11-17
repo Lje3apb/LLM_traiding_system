@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from typing import Any
+from typing import Any, Literal
 
 from llm_trading_system.strategies.base import AccountState, Bar, Order, Strategy
 from llm_trading_system.strategies.configs import IndicatorStrategyConfig
@@ -60,6 +60,14 @@ class IndicatorStrategy(Strategy):
         # Current indicator values
         self.current_indicators: dict[str, float | None] = {}
 
+        # Pyramiding and TP/SL state
+        self._closed_trades_count: int = 0
+        self._open_positions_count: int = 0
+        self._current_side: Literal["long", "short", "flat"] = "flat"
+        self._entry_price: float | None = None
+        self._tp_price: float | None = None
+        self._sl_price: float | None = None
+
     def reset(self) -> None:
         """Reset internal state before a new backtest run."""
         self.closes.clear()
@@ -67,6 +75,12 @@ class IndicatorStrategy(Strategy):
         self.lows.clear()
         self.volumes.clear()
         self.current_indicators = {}
+        self._closed_trades_count = 0
+        self._open_positions_count = 0
+        self._current_side = "flat"
+        self._entry_price = None
+        self._tp_price = None
+        self._sl_price = None
 
     def on_bar(self, bar: Bar, account: AccountState) -> Order | None:
         """Process a new bar and generate trading signals.
@@ -88,23 +102,35 @@ class IndicatorStrategy(Strategy):
         if len(self.closes) < 2:
             return None
 
+        # Check TP/SL first (before computing indicators for performance)
+        if self.config.use_tp_sl and self._check_tp_sl_hit(bar, account):
+            return self._close_position()
+
         # Save previous indicators before computing new ones
         prev_indicators = self.current_indicators.copy() if self.current_indicators else None
 
-        # Compute indicators
-        indicators = self._compute_indicators()
+        # Compute indicators (including time filter)
+        indicators = self._compute_indicators(bar)
 
         # Store current indicators
         self.current_indicators = indicators
+
+        # Apply time filter if enabled
+        if self.config.time_filter_enabled:
+            if not self._is_in_time_window(bar):
+                return None
 
         # Evaluate rules (use saved previous indicators)
         signals = evaluate_rules(self.rules, indicators, prev_indicators)
 
         # Generate order based on signals
-        return self._generate_order(signals, account)
+        return self._generate_order(signals, account, bar)
 
-    def _compute_indicators(self) -> dict[str, float | None]:
+    def _compute_indicators(self, bar: Bar | None = None) -> dict[str, float | None]:
         """Compute all configured indicators.
+
+        Args:
+            bar: Current bar (for extracting hour if time filter enabled)
 
         Returns:
             Dictionary of indicator name -> value
@@ -135,6 +161,9 @@ class IndicatorStrategy(Strategy):
         indicators["bb_middle"] = bb_middle
         indicators["bb_upper"] = bb_upper
         indicators["bb_lower"] = bb_lower
+        # Aliases for TradingView-style naming
+        indicators["lowerBB"] = bb_lower
+        indicators["upperBB"] = bb_upper
 
         # ATR
         indicators["atr"] = atr(
@@ -142,22 +171,35 @@ class IndicatorStrategy(Strategy):
         )
 
         # Volume MA
-        indicators["vol_ma"] = sma(volumes_list, self.config.vol_ma_len)
+        vol_ma_val = sma(volumes_list, self.config.vol_ma_len)
+        indicators["vol_ma"] = vol_ma_val
 
-        # Current close price (useful for rules like "close > bb_upper")
+        # Volume MA scaled by multiplier (for volume filter comparisons)
+        if vol_ma_val is not None:
+            indicators["vol_ma_scaled"] = vol_ma_val * self.config.vol_mult
+
+        # Current OHLCV values (useful for rules)
+        indicators["open"] = bar.open if bar else None
+        indicators["high"] = highs_list[-1] if highs_list else None
+        indicators["low"] = lows_list[-1] if lows_list else None
         indicators["close"] = closes_list[-1] if closes_list else None
         indicators["volume"] = volumes_list[-1] if volumes_list else None
+
+        # Extract hour from bar timestamp (for time filters)
+        if bar:
+            indicators["hour"] = float(bar.timestamp.hour)
 
         return indicators
 
     def _generate_order(
-        self, signals: dict[str, bool], account: AccountState
+        self, signals: dict[str, bool], account: AccountState, bar: Bar
     ) -> Order | None:
         """Generate an order based on rule evaluation signals.
 
         Args:
             signals: Dictionary with long_entry, short_entry, long_exit, short_exit
             account: Current account state
+            bar: Current bar
 
         Returns:
             Order to execute or None
@@ -167,29 +209,126 @@ class IndicatorStrategy(Strategy):
         # Check exit signals first
         if current_position > 0 and signals["long_exit"]:
             # Exit long position
-            return Order(symbol=self.symbol, side="flat", size=0.0)
+            return self._close_position()
 
         if current_position < 0 and signals["short_exit"]:
             # Exit short position
-            return Order(symbol=self.symbol, side="flat", size=0.0)
+            return self._close_position()
+
+        # Check pyramiding limit
+        if self._open_positions_count >= self.config.pyramiding:
+            return None
 
         # Check entry signals
         if signals["long_entry"] and self.config.allow_long:
             # Enter or increase long position
             if current_position <= 0:  # Not currently long
-                return Order(
-                    symbol=self.symbol, side="long", size=self.config.base_size
-                )
+                size = self._calculate_position_size()
+                self._entry_price = bar.close
+                self._set_tp_sl_for_long()
+                self._current_side = "long"
+                self._open_positions_count += 1
+                return Order(symbol=self.symbol, side="long", size=size)
 
         if signals["short_entry"] and self.config.allow_short:
             # Enter or increase short position
             if current_position >= 0:  # Not currently short
-                return Order(
-                    symbol=self.symbol, side="short", size=self.config.base_size
-                )
+                size = self._calculate_position_size()
+                self._entry_price = bar.close
+                self._set_tp_sl_for_short()
+                self._current_side = "short"
+                self._open_positions_count += 1
+                return Order(symbol=self.symbol, side="short", size=size)
 
         # No signal or already in position
         return None
+
+    def _calculate_position_size(self) -> float:
+        """Calculate position size with martingale scaling.
+
+        Returns:
+            Position size as fraction of equity
+        """
+        # TradingView-style: step = closedtrades - opentrades
+        step = self._closed_trades_count - self._open_positions_count
+        step = max(0, step)
+
+        # Apply martingale: size = base_size * (mult ** step)
+        size = self.config.base_size * (self.config.martingale_mult ** step)
+        return min(size, 1.0)  # Cap at 100% equity
+
+    def _set_tp_sl_for_long(self) -> None:
+        """Set TP/SL prices for long position."""
+        if not self.config.use_tp_sl or self._entry_price is None:
+            return
+        self._tp_price = self._entry_price * (1 + self.config.tp_long_pct / 100)
+        self._sl_price = self._entry_price * (1 - self.config.sl_long_pct / 100)
+
+    def _set_tp_sl_for_short(self) -> None:
+        """Set TP/SL prices for short position."""
+        if not self.config.use_tp_sl or self._entry_price is None:
+            return
+        self._tp_price = self._entry_price * (1 - self.config.tp_short_pct / 100)
+        self._sl_price = self._entry_price * (1 + self.config.sl_short_pct / 100)
+
+    def _check_tp_sl_hit(self, bar: Bar, account: AccountState) -> bool:
+        """Check if TP or SL is hit on current bar.
+
+        Args:
+            bar: Current bar
+            account: Current account state
+
+        Returns:
+            True if TP or SL is hit
+        """
+        if account.position_size == 0 or self._entry_price is None:
+            return False
+
+        if self._current_side == "long":
+            if self._tp_price and bar.high >= self._tp_price:
+                return True
+            if self._sl_price and bar.low <= self._sl_price:
+                return True
+        elif self._current_side == "short":
+            if self._tp_price and bar.low <= self._tp_price:
+                return True
+            if self._sl_price and bar.high >= self._sl_price:
+                return True
+
+        return False
+
+    def _close_position(self) -> Order:
+        """Close current position and reset state.
+
+        Returns:
+            Flat order
+        """
+        self._closed_trades_count += 1
+        self._open_positions_count = 0
+        self._current_side = "flat"
+        self._entry_price = None
+        self._tp_price = None
+        self._sl_price = None
+        return Order(symbol=self.symbol, side="flat", size=0.0)
+
+    def _is_in_time_window(self, bar: Bar) -> bool:
+        """Check if current bar is within the configured time window.
+
+        Args:
+            bar: Current bar
+
+        Returns:
+            True if bar is within time window
+        """
+        hour = bar.timestamp.hour
+        start = self.config.time_filter_start_hour
+        end = self.config.time_filter_end_hour
+
+        if start <= end:
+            return start <= hour <= end
+        else:
+            # Handle wrap-around (e.g., 22:00 - 06:00)
+            return hour >= start or hour <= end
 
 
 __all__ = ["IndicatorStrategy"]

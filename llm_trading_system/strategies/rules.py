@@ -86,6 +86,90 @@ class RuleSet:
         }
 
 
+def _evaluate_expression(
+    expr: str, indicators: dict[str, float | None]
+) -> float | None:
+    """Evaluate a simple arithmetic expression.
+
+    Supports expressions like:
+    - "vol_ma * 1.5"
+    - "vol_ma / 2"
+    - "atr * 2.0"
+
+    Args:
+        expr: Expression string
+        indicators: Indicator values
+
+    Returns:
+        Evaluated value or None if invalid
+    """
+    expr = expr.strip()
+
+    # Try multiplication
+    if "*" in expr:
+        parts = expr.split("*", 1)
+        if len(parts) == 2:
+            left = _get_value_from_str(parts[0].strip(), indicators)
+            right = _get_value_from_str(parts[1].strip(), indicators)
+            if left is not None and right is not None:
+                return left * right
+
+    # Try division
+    if "/" in expr:
+        parts = expr.split("/", 1)
+        if len(parts) == 2:
+            left = _get_value_from_str(parts[0].strip(), indicators)
+            right = _get_value_from_str(parts[1].strip(), indicators)
+            if left is not None and right is not None and right != 0:
+                return left / right
+
+    # Try addition
+    if "+" in expr:
+        parts = expr.split("+", 1)
+        if len(parts) == 2:
+            left = _get_value_from_str(parts[0].strip(), indicators)
+            right = _get_value_from_str(parts[1].strip(), indicators)
+            if left is not None and right is not None:
+                return left + right
+
+    # Try subtraction (be careful with negative numbers)
+    if "-" in expr and not expr.startswith("-"):
+        parts = expr.split("-", 1)
+        if len(parts) == 2:
+            left = _get_value_from_str(parts[0].strip(), indicators)
+            right = _get_value_from_str(parts[1].strip(), indicators)
+            if left is not None and right is not None:
+                return left - right
+
+    # No expression found, return simple value
+    return _get_value_from_str(expr, indicators)
+
+
+def _get_value_from_str(
+    s: str, indicators: dict[str, float | None]
+) -> float | None:
+    """Get a numeric value from a string (indicator name or literal number).
+
+    Args:
+        s: String (indicator name like "rsi" or number like "30")
+        indicators: Indicator values
+
+    Returns:
+        Numeric value or None
+    """
+    s = s.strip()
+
+    # Try as indicator name
+    if s in indicators:
+        return indicators[s]
+
+    # Try as literal number
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        return None
+
+
 def _evaluate_condition(
     condition: Condition,
     indicators: dict[str, float | None],
@@ -106,9 +190,9 @@ def _evaluate_condition(
     if left_val is None:
         return False
 
-    # Get right value
+    # Get right value (supports expressions)
     if isinstance(condition.right, str):
-        right_val = indicators.get(condition.right)
+        right_val = _evaluate_expression(condition.right, indicators)
         if right_val is None:
             return False
     else:
