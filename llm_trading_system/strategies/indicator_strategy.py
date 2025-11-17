@@ -103,8 +103,10 @@ class IndicatorStrategy(Strategy):
             return None
 
         # Check TP/SL first (before computing indicators for performance)
-        if self.config.use_tp_sl and self._check_tp_sl_hit(bar, account):
-            return self._close_position()
+        if self.config.use_tp_sl:
+            exit_price = self._check_tp_sl_hit(bar, account)
+            if exit_price is not None:
+                return self._close_position(exit_price=exit_price)
 
         # Save previous indicators before computing new ones
         prev_indicators = self.current_indicators.copy() if self.current_indicators else None
@@ -219,33 +221,56 @@ class IndicatorStrategy(Strategy):
             # Exit short position
             return self._close_position()
 
-        # Check pyramiding limit
-        if self._open_positions_count >= self.config.pyramiding:
-            return None
-
         # Check entry signals
         if signals["long_entry"] and self.config.allow_long:
-            # Enter or increase long position
-            if current_position <= 0:  # Not currently long
-                size = self._calculate_position_size()
-                self._entry_price = bar.close
-                self._set_tp_sl_for_long()
-                self._current_side = "long"
-                self._open_positions_count += 1
-                return Order(symbol=self.symbol, side="long", size=size)
+            order = self._prepare_entry("long", current_position, bar)
+            if order:
+                return order
 
         if signals["short_entry"] and self.config.allow_short:
-            # Enter or increase short position
-            if current_position >= 0:  # Not currently short
-                size = self._calculate_position_size()
-                self._entry_price = bar.close
-                self._set_tp_sl_for_short()
-                self._current_side = "short"
-                self._open_positions_count += 1
-                return Order(symbol=self.symbol, side="short", size=size)
+            order = self._prepare_entry("short", current_position, bar)
+            if order:
+                return order
 
         # No signal or already in position
         return None
+
+    def _prepare_entry(
+        self, side: Literal["long", "short"], current_position: float, bar: Bar
+    ) -> Order | None:
+        """Prepare a new or pyramided entry respecting limits."""
+
+        same_direction = (current_position > 0 and side == "long") or (
+            current_position < 0 and side == "short"
+        )
+
+        # If switching direction, count previous trade as closed
+        if not same_direction and current_position != 0:
+            self._mark_trade_closed()
+
+        entries_in_position = self._open_positions_count if same_direction else 0
+        if entries_in_position >= self.config.pyramiding:
+            return None
+
+        incremental_size = self._calculate_position_size()
+        if incremental_size <= 0:
+            return None
+
+        base_target = abs(current_position) if same_direction else 0.0
+        target = min(1.0, base_target + incremental_size)
+        if target <= base_target:
+            return None
+
+        self._entry_price = bar.close
+        self._current_side = side
+        if side == "long":
+            self._set_tp_sl_for_long()
+        else:
+            self._set_tp_sl_for_short()
+
+        self._open_positions_count = entries_in_position + 1
+        order = Order(symbol=self.symbol, side=side, size=target)
+        return order
 
     def _calculate_position_size(self) -> float:
         """Calculate position size with martingale scaling.
@@ -257,9 +282,19 @@ class IndicatorStrategy(Strategy):
         step = self._closed_trades_count - self._open_positions_count
         step = max(0, step)
 
-        # Apply martingale: size = base_size * (mult ** step)
-        size = self.config.base_size * (self.config.martingale_mult ** step)
+        base_fraction = self._base_position_fraction()
+        if self.config.use_martingale:
+            size = base_fraction * (self.config.martingale_mult ** step)
+        else:
+            size = base_fraction
         return min(size, 1.0)  # Cap at 100% equity
+
+    def _base_position_fraction(self) -> float:
+        """Resolve configured base size, including percent inputs."""
+
+        if self.config.base_position_pct is not None:
+            return max(0.0, min(self.config.base_position_pct / 100.0, 1.0))
+        return max(0.0, min(self.config.base_size, 1.0))
 
     def _set_tp_sl_for_long(self) -> None:
         """Set TP/SL prices for long position."""
@@ -275,7 +310,7 @@ class IndicatorStrategy(Strategy):
         self._tp_price = self._entry_price * (1 - self.config.tp_short_pct / 100)
         self._sl_price = self._entry_price * (1 + self.config.sl_short_pct / 100)
 
-    def _check_tp_sl_hit(self, bar: Bar, account: AccountState) -> bool:
+    def _check_tp_sl_hit(self, bar: Bar, account: AccountState) -> float | None:
         """Check if TP or SL is hit on current bar.
 
         Note: SL is checked first (as in TradingView), then TP.
@@ -287,39 +322,45 @@ class IndicatorStrategy(Strategy):
             account: Current account state
 
         Returns:
-            True if TP or SL is hit
+            Exit price if TP or SL is hit, otherwise None
         """
         if account.position_size == 0 or self._entry_price is None:
-            return False
+            return None
 
         if self._current_side == "long":
             # Check SL first (conservative approach)
             if self._sl_price and bar.low <= self._sl_price:
-                return True
+                return self._sl_price
             if self._tp_price and bar.high >= self._tp_price:
-                return True
+                return self._tp_price
         elif self._current_side == "short":
             # Check SL first (conservative approach)
             if self._sl_price and bar.high >= self._sl_price:
-                return True
+                return self._sl_price
             if self._tp_price and bar.low <= self._tp_price:
-                return True
+                return self._tp_price
 
-        return False
+        return None
 
-    def _close_position(self) -> Order:
+    def _close_position(self, *, exit_price: float | None = None) -> Order:
         """Close current position and reset state.
 
         Returns:
             Flat order
         """
+        self._mark_trade_closed()
+        meta = {"exit_price": exit_price} if exit_price is not None else None
+        return Order(symbol=self.symbol, side="flat", size=0.0, meta=meta)
+
+    def _mark_trade_closed(self) -> None:
+        """Update counters/state after closing an active trade."""
+
         self._closed_trades_count += 1
         self._open_positions_count = 0
         self._current_side = "flat"
         self._entry_price = None
         self._tp_price = None
         self._sl_price = None
-        return Order(symbol=self.symbol, side="flat", size=0.0)
 
     def _is_in_time_window(self, bar: Bar) -> bool:
         """Check if current bar is within the configured time window.
