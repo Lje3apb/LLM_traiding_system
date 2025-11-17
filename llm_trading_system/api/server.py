@@ -664,6 +664,51 @@ async def ui_download_data(
     return StreamingResponse(generate_progress(), media_type="application/x-ndjson")
 
 
+@app.get("/ui/data/files")
+async def ui_list_data_files() -> JSONResponse:
+    """Web UI: List available CSV data files.
+
+    Returns:
+        JSON response with list of CSV files in data/ directory
+    """
+    try:
+        data_dir = Path("data")
+        if not data_dir.exists():
+            return JSONResponse({"files": []})
+
+        # Get all CSV files
+        csv_files = sorted(data_dir.glob("*.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
+
+        # Build file list with metadata
+        files = []
+        for filepath in csv_files:
+            try:
+                # Get file size
+                size_bytes = filepath.stat().st_size
+                size_mb = size_bytes / (1024 * 1024)
+
+                # Try to count rows (quick check - just count lines)
+                with open(filepath, "r") as f:
+                    row_count = sum(1 for _ in f) - 1  # -1 for header
+
+                files.append(
+                    {
+                        "path": str(filepath),
+                        "name": filepath.name,
+                        "size_mb": round(size_mb, 2),
+                        "rows": row_count,
+                    }
+                )
+            except Exception as e:
+                # If we can't read the file, still include it but without metadata
+                files.append({"path": str(filepath), "name": filepath.name, "size_mb": 0, "rows": 0})
+
+        return JSONResponse({"files": files})
+
+    except Exception as e:
+        return JSONResponse({"files": [], "error": str(e)})
+
+
 def main() -> None:
     """Run the API server for local development."""
     import uvicorn

@@ -62,9 +62,14 @@
         <h3>Backtest Parameters</h3>
 
         <div class="form-group">
-            <label for="data_path">Data File Path</label>
-            <input type="text" id="data_path" name="data_path" placeholder="data/BTCUSDT_5m_2024-01-01_2024-12-31.csv" required>
-            <p class="help-text">Path to CSV file with OHLCV data (will be auto-filled after download)</p>
+            <label for="data_path">Select Data File</label>
+            <div style="display: flex; gap: 10px; align-items: flex-start;">
+                <select id="data_path" name="data_path" required style="flex: 1;">
+                    <option value="">-- Select CSV file --</option>
+                </select>
+                <button type="button" id="refresh_files_btn" class="btn btn-secondary" style="white-space: nowrap;">Refresh</button>
+            </div>
+            <p class="help-text" id="file_info" style="margin-top: 5px; color: #666;"></p>
         </div>
 
         <div class="form-row">
@@ -144,7 +149,67 @@ document.addEventListener('DOMContentLoaded', function() {
     const downloadProgress = document.getElementById('download_progress');
     const progressBar = document.getElementById('progress_bar');
     const progressText = document.getElementById('progress_text');
-    const dataPathInput = document.getElementById('data_path');
+    const dataPathSelect = document.getElementById('data_path');
+    const fileInfo = document.getElementById('file_info');
+    const refreshFilesBtn = document.getElementById('refresh_files_btn');
+
+    let filesData = []; // Store file metadata
+
+    // Function to load available CSV files
+    async function loadDataFiles() {
+        try {
+            const response = await fetch('/ui/data/files');
+            const data = await response.json();
+
+            filesData = data.files || [];
+
+            // Clear existing options except the first one
+            dataPathSelect.innerHTML = '<option value="">-- Select CSV file --</option>';
+
+            // Add file options
+            filesData.forEach(file => {
+                const option = document.createElement('option');
+                option.value = file.path;
+                option.textContent = `${file.name} (${file.rows} rows, ${file.size_mb} MB)`;
+                dataPathSelect.appendChild(option);
+            });
+
+            // If no files, show message
+            if (filesData.length === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = '-- No CSV files found. Download data first --';
+                option.disabled = true;
+                dataPathSelect.appendChild(option);
+            }
+        } catch (error) {
+            console.error('Failed to load data files:', error);
+            fileInfo.textContent = 'Error loading files';
+            fileInfo.style.color = 'red';
+        }
+    }
+
+    // Function to update file info display
+    function updateFileInfo() {
+        const selectedPath = dataPathSelect.value;
+        if (!selectedPath) {
+            fileInfo.textContent = '';
+            return;
+        }
+
+        const file = filesData.find(f => f.path === selectedPath);
+        if (file) {
+            fileInfo.textContent = `File: ${file.name} | ${file.rows.toLocaleString()} rows | ${file.size_mb} MB`;
+            fileInfo.style.color = '#666';
+        }
+    }
+
+    // Event listeners
+    dataPathSelect.addEventListener('change', updateFileInfo);
+    refreshFilesBtn.addEventListener('click', loadDataFiles);
+
+    // Load files on page load
+    loadDataFiles();
 
     downloadBtn.addEventListener('click', async function() {
         // Get form values
@@ -225,8 +290,12 @@ document.addEventListener('DOMContentLoaded', function() {
                             // Success!
                             progressBar.style.width = '100%';
                             progressText.textContent = data.message;
-                            dataPathInput.value = data.file_path;
                             downloadStatus.innerHTML = '<span style="color: green;">✓ Success! ' + data.rows + ' rows loaded</span>';
+
+                            // Reload file list and select the new file
+                            await loadDataFiles();
+                            dataPathSelect.value = data.file_path;
+                            updateFileInfo();
 
                             // Hide progress after 3 seconds
                             setTimeout(() => {
