@@ -51,6 +51,25 @@ class IndicatorStrategyConfig:
     allow_short: bool = True
     base_size: float = 0.01  # Base position size as fraction of equity
 
+    # Pyramiding and martingale parameters (TradingView-style)
+    pyramiding: int = 1  # Maximum number of pyramid entries
+    martingale_mult: float = 1.0  # Martingale multiplier (1.0 = no martingale)
+
+    # Take Profit / Stop Loss parameters (percentage-based)
+    tp_long_pct: float = 2.0  # Take profit for long positions (%)
+    sl_long_pct: float = 2.0  # Stop loss for long positions (%)
+    tp_short_pct: float = 2.0  # Take profit for short positions (%)
+    sl_short_pct: float = 2.0  # Stop loss for short positions (%)
+    use_tp_sl: bool = False  # Enable TP/SL functionality
+
+    # Time filter parameters
+    time_filter_enabled: bool = False  # Enable time-based filtering
+    time_filter_start_hour: int = 0  # Start hour (0-23)
+    time_filter_end_hour: int = 23  # End hour (0-23)
+
+    # Volume filter multiplier
+    vol_mult: float = 1.0  # Multiplier for volume MA comparison
+
     # LLM-related fields (for HYBRID and LLM_ONLY modes)
     k_max: float = 2.0  # Maximum LLM multiplier
     llm_horizon_hours: int | None = None  # Override snapshot horizon_hours
