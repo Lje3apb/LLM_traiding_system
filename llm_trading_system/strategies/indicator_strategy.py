@@ -103,6 +103,9 @@ class IndicatorStrategy(Strategy):
             return None
 
         # Check TP/SL first (before computing indicators for performance)
+        # NOTE: TP/SL is checked before entry signals to avoid overtrading.
+        # If TP/SL is hit, the position closes and no new entries are evaluated
+        # in the same bar. This is intentional risk management behavior.
         if self.config.use_tp_sl:
             exit_price = self._check_tp_sl_hit(bar, account)
             if exit_price is not None:
