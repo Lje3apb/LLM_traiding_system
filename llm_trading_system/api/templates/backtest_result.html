@@ -732,7 +732,8 @@
     // Format datetime
     function formatDateTime(timestamp) {
         if (!timestamp) return '-';
-        const date = new Date(timestamp);
+        // Backend sends Unix timestamp in seconds, JS Date expects milliseconds
+        const date = new Date(timestamp * 1000);
         return date.toLocaleString('en-US', {
             year: 'numeric',
             month: 'short',

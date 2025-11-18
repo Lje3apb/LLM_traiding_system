@@ -61,24 +61,25 @@ def compute_position_multipliers(
     *,
     k_max: float = 2.0,
 ) -> tuple[float, float, float]:
-    """Convert LLM regime output into position size multipliers.
+    """Convert LLM regime output into position size multipliers using aggressive non-linear sizing.
 
-    This function implements a regime-based position sizing strategy that combines
-    directional probabilities, market sentiment, on-chain metrics, trend strength,
-    and risk factors to compute appropriate position sizing multipliers.
+    This function implements an aggressive regime-based position sizing strategy that amplifies
+    directional edge through non-linear transformations while maintaining risk controls. The new
+    approach uses:
+    - Non-linear edge amplification (power function with gamma < 1)
+    - Confidence-based scaling
+    - Trend-strength alignment
+    - Risk throttling based on liquidity and news risk
 
     Args:
         llm_output: Dictionary containing:
             - prob_bull (float): Probability of bull regime, in [0, 1]
             - prob_bear (float): Probability of bear regime, in [0, 1]
+            - confidence_level (str): "low", "medium", or "high"
             - scores (dict): Dictionary of market scores:
-                - global_sentiment (float): -1 to 1
-                - btc_sentiment (float): -1 to 1
-                - altcoin_sentiment (float): -1 to 1 (not used for BTC)
-                - onchain_pressure (float): -1 to 1
+                - trend_strength (float): 0 to 1 (0 = no trend, 1 = strong)
                 - liquidity_risk (float): 0 to 1 (higher = more dangerous)
                 - news_risk (float): 0 to 1 (higher = more dangerous)
-                - trend_strength (float): 0 to 1 (0 = no trend, 1 = strong)
         side: "long" or "short" - the side for which to compute position size
         base_long_size: Base position size for long entries (e.g., 0.01 = 1% of equity)
         base_short_size: Base position size for short entries
@@ -95,18 +96,17 @@ def compute_position_multipliers(
 
     Example:
         >>> llm_output = {
-        ...     "prob_bull": 0.65,
-        ...     "prob_bear": 0.35,
+        ...     "prob_bull": 0.75,
+        ...     "prob_bear": 0.25,
+        ...     "confidence_level": "high",
         ...     "scores": {
-        ...         "btc_sentiment": 0.4,
-        ...         "onchain_pressure": 0.2,
         ...         "trend_strength": 0.7,
-        ...         "liquidity_risk": 0.3,
-        ...         "news_risk": 0.2,
+        ...         "liquidity_risk": 0.2,
+        ...         "news_risk": 0.1,
         ...     }
         ... }
         >>> pos_size, k_long, k_short = compute_position_multipliers(
-        ...     llm_output, "long", 0.01, 0.01
+        ...     llm_output, "long", 0.01, 0.01, k_max=2.0
         ... )
         >>> print(f"Long multiplier: {k_long:.2f}, Short multiplier: {k_short:.2f}")
     """
@@ -114,7 +114,16 @@ def compute_position_multipliers(
     if side not in ("long", "short"):
         raise ValueError(f"side must be 'long' or 'short', got '{side}'")
 
-    # Extract probabilities
+    # ========================================================================
+    # HYPERPARAMETERS (tuned for aggressive but controlled sizing)
+    # ========================================================================
+    EDGE_GAIN = 2.5  # Amplifies edge (higher = more aggressive)
+    EDGE_GAMMA = 0.7  # Non-linear compression exponent (< 1 for diminishing returns)
+    BASE_K = 0.5  # Neutral multiplier baseline
+
+    # ========================================================================
+    # 1. EXTRACT AND VALIDATE PROBABILITIES
+    # ========================================================================
     prob_bull = llm_output.get("prob_bull", 0.5)
     prob_bear = llm_output.get("prob_bear", 0.5)
 
@@ -128,9 +137,9 @@ def compute_position_multipliers(
         prob_bull = clamp(prob_bull, 0.0, 1.0)
         prob_bear = clamp(prob_bear, 0.0, 1.0)
 
-    # Check if probabilities sum to ~1.0
+    # Normalize probabilities to sum to 1.0
     prob_sum = prob_bull + prob_bear
-    if abs(prob_sum - 1.0) > 0.01:  # Allow small tolerance
+    if abs(prob_sum - 1.0) > 0.01:
         logging.warning(
             "Probabilities sum to %.3f (not 1.0). Normalizing: prob_bull=%.3f, prob_bear=%.3f",
             prob_sum,
@@ -144,67 +153,74 @@ def compute_position_multipliers(
             prob_bull = 0.5
             prob_bear = 0.5
 
-    # Extract scores with safe defaults
+    # ========================================================================
+    # 2. EXTRACT CONFIDENCE AND SCORES
+    # ========================================================================
+    confidence_level = llm_output.get("confidence_level", "low")
     scores = llm_output.get("scores", {})
-    btc_sentiment = safe_get_score(scores, "btc_sentiment", 0.0)
-    onchain_pressure = safe_get_score(scores, "onchain_pressure", 0.0)
-    trend_strength = safe_get_score(scores, "trend_strength", 0.0)
-    liquidity_risk = safe_get_score(scores, "liquidity_risk", 0.0)
-    news_risk = safe_get_score(scores, "news_risk", 0.0)
 
-    # Clamp scores to expected ranges
-    btc_sentiment = clamp(btc_sentiment, -1.0, 1.0)
-    onchain_pressure = clamp(onchain_pressure, -1.0, 1.0)
-    trend_strength = clamp(trend_strength, 0.0, 1.0)
-    liquidity_risk = clamp(liquidity_risk, 0.0, 1.0)
-    news_risk = clamp(news_risk, 0.0, 1.0)
+    trend_strength = clamp(safe_get_score(scores, "trend_strength", 0.0), 0.0, 1.0)
+    liquidity_risk = clamp(safe_get_score(scores, "liquidity_risk", 0.0), 0.0, 1.0)
+    news_risk = clamp(safe_get_score(scores, "news_risk", 0.0), 0.0, 1.0)
 
     # ========================================================================
-    # 1. DIRECTIONAL BIAS FROM PROBABILITIES
+    # 3. COMPUTE EDGE (directional bias from probabilities)
     # ========================================================================
-
-    # Compute raw directional bias: D in [-1, 1]
-    D = prob_bull - prob_bear  # = 2 * prob_bull - 1
-
-    # Apply dead-zone threshold to ignore small noise
-    d0 = 0.1  # neutral zone threshold
-    if abs(D) <= d0:
-        d_eff = 0.0
-    else:
-        d_eff = (abs(D) - d0) / (1.0 - d0)
-        d_eff *= 1.0 if D >= 0 else -1.0  # preserve sign
-
-    # Convert to baseline directional multipliers
-    γ_dir = 1.0  # directional sensitivity
-    k_dir_max = k_max
-
-    k_dir_long = clamp(1.0 + γ_dir * d_eff, 0.0, k_dir_max)
-    k_dir_short = clamp(1.0 - γ_dir * d_eff, 0.0, k_dir_max)
+    # edge > 0 means bullish, edge < 0 means bearish
+    edge = prob_bull - 0.5
+    edge_abs = abs(edge)
 
     # ========================================================================
-    # 2. SCORE-BASED ADJUSTMENTS
+    # 4. APPLY CONFIDENCE SCALING
     # ========================================================================
-
-    # 2.1 BTC Sentiment
-    β_sent = 0.5  # up to ±50% effect
-    sent_long = 1.0 + β_sent * max(btc_sentiment, 0.0)
-    sent_short = 1.0 + β_sent * max(-btc_sentiment, 0.0)
-
-    # 2.2 On-chain Pressure
-    β_chain = 0.3
-    chain_long = 1.0 + β_chain * max(onchain_pressure, 0.0)
-    chain_short = 1.0 + β_chain * max(-onchain_pressure, 0.0)
-
-    # 2.3 Trend Strength (aligned with d_eff)
-    β_trend = 0.7
-    trend_long = 1.0 + β_trend * max(d_eff, 0.0) * trend_strength
-    trend_short = 1.0 + β_trend * max(-d_eff, 0.0) * trend_strength
+    if confidence_level == "low":
+        conf_scale = 0.7
+    elif confidence_level == "high":
+        conf_scale = 1.3
+    else:  # "medium" or unknown
+        conf_scale = 1.0
 
     # ========================================================================
-    # 3. GLOBAL RISK THROTTLING
+    # 5. APPLY TREND SCALING
     # ========================================================================
+    # Boost multiplier when trend aligns with edge
+    # Range: 0.8 (weak trend) to 1.2 (strong trend)
+    trend_scale = 0.8 + 0.4 * trend_strength
 
-    # Hard stop for extremely dangerous conditions
+    # ========================================================================
+    # 6. COMPUTE EFFECTIVE EDGE (non-linear amplification)
+    # ========================================================================
+    # Amplify edge and apply power compression
+    edge_eff = edge_abs * EDGE_GAIN
+    edge_eff = edge_eff ** EDGE_GAMMA  # Non-linear compression
+    edge_eff = edge_eff * conf_scale * trend_scale
+
+    # Clamp effective edge to reasonable bounds
+    edge_eff = clamp(edge_eff, 0.0, 0.9)
+
+    # ========================================================================
+    # 7. COMPUTE BASE MULTIPLIERS
+    # ========================================================================
+    if edge >= 0:  # Bullish bias
+        k_long = BASE_K + edge_eff
+        k_short = BASE_K - edge_eff
+    else:  # Bearish bias
+        k_long = BASE_K - edge_eff
+        k_short = BASE_K + edge_eff
+
+    # ========================================================================
+    # 8. APPLY RISK PENALTY
+    # ========================================================================
+    # Combine liquidity risk and news risk
+    risk_factor = 0.5 * (liquidity_risk + news_risk)
+    risk_scale = 1.0 - 0.3 * risk_factor  # Range: 1.0 (no risk) to 0.7 (high risk)
+    risk_scale = clamp(risk_scale, 0.7, 1.0)
+
+    # Apply risk penalty
+    k_long = k_long * risk_scale
+    k_short = k_short * risk_scale
+
+    # Hard stop for extreme risk
     if max(liquidity_risk, news_risk) > 0.9:
         logging.warning(
             "Extremely high risk detected (liquidity_risk=%.2f, news_risk=%.2f). "
@@ -214,45 +230,15 @@ def compute_position_multipliers(
         )
         return 0.0, 0.0, 0.0
 
-    # Risk throttling factors
-    α_liq = 0.7
-    α_news = 0.7
-
-    risk_liq = 1.0 - α_liq * liquidity_risk
-    risk_news = 1.0 - α_news * news_risk
-
-    # Combine risks and ensure minimum floor
-    risk_factor = min(risk_liq, risk_news)
-    risk_factor = clamp(risk_factor, 0.1, 1.0)  # never below 0.1
+    # ========================================================================
+    # 9. CLAMP TO [0, k_max] AND ENSURE NON-NEGATIVE
+    # ========================================================================
+    k_long = clamp(k_long, 0.0, k_max)
+    k_short = clamp(k_short, 0.0, k_max)
 
     # ========================================================================
-    # 4. COMBINE ALL FACTORS
+    # 10. COMPUTE FINAL POSITION SIZE FOR GIVEN SIDE
     # ========================================================================
-
-    k_long_raw = (
-        k_dir_long
-        * sent_long
-        * chain_long
-        * trend_long
-        * risk_factor
-    )
-
-    k_short_raw = (
-        k_dir_short
-        * sent_short
-        * chain_short
-        * trend_short
-        * risk_factor
-    )
-
-    # Clamp by k_max
-    k_long = clamp(k_long_raw, 0.0, k_max)
-    k_short = clamp(k_short_raw, 0.0, k_max)
-
-    # ========================================================================
-    # 5. COMPUTE FINAL POSITION SIZE FOR GIVEN SIDE
-    # ========================================================================
-
     if side == "long":
         position_size = base_long_size * k_long
     elif side == "short":
