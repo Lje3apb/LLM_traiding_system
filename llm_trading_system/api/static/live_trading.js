@@ -23,6 +23,10 @@ let emaSeries = null;
 let tradeMarkers = [];
 let sessionStatus = 'none';
 let isLoading = false;
+let sessionStartTime = null;
+let sessionConfig = null;
+let durationTimer = null;
+let initialDeposit = 0;
 
 // ============================================================================
 // Initialization
@@ -32,6 +36,7 @@ document.addEventListener('DOMContentLoaded', function() {
     setupEventListeners();
     updateUIState();
     updateModeBadge();
+    prefillFormFromURL();
 });
 
 // ============================================================================
@@ -212,7 +217,10 @@ async function createSession() {
         updateSessionDisplay(data);
         updateUIState();
         initializeChart();
+        updateSessionSummary(config, null);
 
+        addLogEntry(`Session created: ${currentSessionId.substring(0, 12)}...`, 'success');
+        addLogEntry(`Mode: ${currentMode.toUpperCase()} | Strategy: ${config.strategy_config} | Symbol: ${config.symbol} ${config.timeframe}`, 'info');
         showSuccess(`Session created successfully: ${currentSessionId.substring(0, 8)}...`);
         console.log('Session created:', currentSessionId);
     } catch (error) {
@@ -257,6 +265,9 @@ async function startSession() {
         updateSessionDisplay(data);
         updateUIState();
 
+        // Start duration timer
+        startDurationTimer();
+
         // Connect WebSocket for real-time updates
         connectWebSocket();
 
@@ -264,6 +275,8 @@ async function startSession() {
         await loadInitialBars();
         await loadInitialTrades();
 
+        addLogEntry('Trading session started', 'success');
+        addLogEntry('WebSocket connected, receiving real-time updates', 'info');
         showSuccess('Trading session started');
         console.log('Session started:', currentSessionId);
     } catch (error) {
@@ -301,7 +314,10 @@ async function stopSession() {
         updateSessionDisplay(data);
         updateUIState();
         disconnectWebSocket();
+        stopDurationTimer();
 
+        addLogEntry('Trading session stopped', 'warning');
+        addLogEntry('WebSocket disconnected', 'info');
         showSuccess('Trading session stopped');
         console.log('Session stopped:', currentSessionId);
     } catch (error) {
@@ -433,6 +449,7 @@ function updateSessionDisplay(sessionData) {
     // Update account metrics if last_state is available
     if (sessionData.last_state) {
         updateAccountMetrics(sessionData.last_state);
+        updateSessionSummary(null, sessionData.last_state);
 
         if (sessionData.last_state.recent_trades) {
             updateTradesTable(sessionData.last_state.recent_trades);
@@ -533,6 +550,12 @@ function updateTradesTable(trades) {
 
 function handleNewTrade(trade) {
     console.log('New trade:', trade);
+
+    // Log the trade
+    const tradeMsg = `${trade.side.toUpperCase()} ${trade.quantity.toFixed(4)} @ $${trade.price.toFixed(2)}`;
+    const pnl = trade.pnl || 0;
+    const pnlMsg = pnl !== 0 ? ` | P&L: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}` : '';
+    addLogEntry(`Trade executed: ${tradeMsg}${pnlMsg}`, 'trade');
 
     // Add trade marker to chart if enabled
     if (document.getElementById('toggle-trades').checked && candlestickSeries) {
@@ -846,6 +869,129 @@ function toggleTrades(event) {
 }
 
 // ============================================================================
+// Session Summary Management
+// ============================================================================
+
+function updateSessionSummary(config, state) {
+    const summaryBlock = document.getElementById('session-summary');
+
+    if (!currentSessionId) {
+        summaryBlock.classList.remove('visible');
+        return;
+    }
+
+    summaryBlock.classList.add('visible');
+
+    // Update basic info
+    if (config) {
+        sessionConfig = config;
+        document.getElementById('summary-strategy').textContent = config.strategy_config || '-';
+        document.getElementById('summary-symbol').textContent = config.symbol || '-';
+        document.getElementById('summary-timeframe').textContent = config.timeframe || '-';
+        document.getElementById('summary-session-id').textContent =
+            currentSessionId ? currentSessionId.substring(0, 12) + '...' : '-';
+
+        const modeBadge = document.getElementById('summary-mode-badge');
+        modeBadge.textContent = config.mode === 'paper' ? 'Paper' : 'Real';
+        modeBadge.className = `mode-badge ${config.mode}`;
+
+        initialDeposit = config.initial_deposit || 0;
+    }
+
+    // Update metrics from state
+    if (state) {
+        // Calculate return %
+        if (initialDeposit > 0) {
+            const returnPct = ((state.equity - initialDeposit) / initialDeposit) * 100;
+            const returnElem = document.getElementById('summary-return-pct');
+            returnElem.textContent = `${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(2)}%`;
+            returnElem.style.color = returnPct >= 0 ? '#10b981' : '#ef4444';
+        }
+
+        // Update trades count
+        const tradesCount = state.recent_trades ? state.recent_trades.length : 0;
+        document.getElementById('summary-trades-count').textContent = tradesCount;
+
+        // Calculate winrate
+        if (state.recent_trades && state.recent_trades.length > 0) {
+            const winningTrades = state.recent_trades.filter(t => (t.pnl || 0) > 0).length;
+            const winrate = (winningTrades / state.recent_trades.length) * 100;
+            document.getElementById('summary-winrate').textContent = `${winrate.toFixed(1)}%`;
+        } else {
+            document.getElementById('summary-winrate').textContent = '-';
+        }
+    }
+}
+
+function startDurationTimer() {
+    sessionStartTime = new Date();
+    updateDuration();
+
+    // Update duration every second
+    if (durationTimer) {
+        clearInterval(durationTimer);
+    }
+    durationTimer = setInterval(updateDuration, 1000);
+}
+
+function stopDurationTimer() {
+    if (durationTimer) {
+        clearInterval(durationTimer);
+        durationTimer = null;
+    }
+}
+
+function updateDuration() {
+    if (!sessionStartTime) {
+        document.getElementById('summary-duration').textContent = '-';
+        return;
+    }
+
+    const now = new Date();
+    const diffMs = now - sessionStartTime;
+    const diffSec = Math.floor(diffMs / 1000);
+    const hours = Math.floor(diffSec / 3600);
+    const minutes = Math.floor((diffSec % 3600) / 60);
+    const seconds = diffSec % 60;
+
+    const durationText = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    document.getElementById('summary-duration').textContent = durationText;
+}
+
+// ============================================================================
+// Activity Log Management
+// ============================================================================
+
+function addLogEntry(message, type = 'info') {
+    const container = document.getElementById('activity-log-container');
+
+    // Clear initial "waiting" message if present
+    if (container.children.length === 1 && container.children[0].textContent.includes('Waiting')) {
+        container.innerHTML = '';
+    }
+
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
+
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${type}`;
+    entry.innerHTML = `
+        <span class="log-time">${timeStr}</span>
+        <span class="log-message">${message}</span>
+    `;
+
+    container.appendChild(entry);
+
+    // Auto-scroll to bottom
+    container.scrollTop = container.scrollHeight;
+
+    // Limit to 100 entries
+    while (container.children.length > 100) {
+        container.removeChild(container.firstChild);
+    }
+}
+
+// ============================================================================
 // UX Helpers
 // ============================================================================
 
@@ -861,18 +1007,18 @@ function setLoading(loading) {
 
 function showSuccess(message) {
     console.log('✓', message);
-    // Could add toast notification here
+    addLogEntry(message, 'success');
 }
 
 function showError(message) {
     console.error('✗', message);
+    addLogEntry(message, 'error');
     alert(message);
-    // Could add toast notification here
 }
 
 function showInfo(message) {
     console.log('ℹ', message);
-    // Could add toast notification here
+    addLogEntry(message, 'info');
 }
 
 // ============================================================================
@@ -895,4 +1041,65 @@ function formatDateTime(timestamp) {
         minute: '2-digit',
         second: '2-digit'
     });
+}
+
+// ============================================================================
+// URL Parameters Prefill
+// ============================================================================
+
+function prefillFormFromURL() {
+    const urlParams = new URLSearchParams(window.location.search);
+
+    // Prefill strategy
+    const strategy = urlParams.get('strategy');
+    if (strategy) {
+        const strategySelect = document.getElementById('strategy-select');
+        const option = Array.from(strategySelect.options).find(opt => opt.value === strategy);
+        if (option) {
+            strategySelect.value = strategy;
+            addLogEntry(`Pre-filled strategy: ${strategy}`, 'info');
+        }
+    }
+
+    // Prefill symbol
+    const symbol = urlParams.get('symbol');
+    if (symbol) {
+        const symbolSelect = document.getElementById('symbol-select');
+        const option = Array.from(symbolSelect.options).find(opt => opt.value === symbol);
+        if (option) {
+            symbolSelect.value = symbol;
+            addLogEntry(`Pre-filled symbol: ${symbol}`, 'info');
+        }
+    }
+
+    // Prefill timeframe
+    const timeframe = urlParams.get('timeframe');
+    if (timeframe) {
+        const timeframeSelect = document.getElementById('timeframe-select');
+        const option = Array.from(timeframeSelect.options).find(opt => opt.value === timeframe);
+        if (option) {
+            timeframeSelect.value = timeframe;
+            addLogEntry(`Pre-filled timeframe: ${timeframe}`, 'info');
+        }
+    }
+
+    // Prefill mode
+    const mode = urlParams.get('mode');
+    if (mode && (mode === 'paper' || mode === 'real')) {
+        const modeRadio = document.querySelector(`input[name="trading-mode"][value="${mode}"]`);
+        if (modeRadio && !modeRadio.disabled) {
+            modeRadio.checked = true;
+            // Trigger mode change handler
+            handleModeChange({ target: modeRadio });
+            addLogEntry(`Pre-filled mode: ${mode.toUpperCase()}`, 'info');
+        }
+    }
+
+    // Prefill deposit (only for paper mode)
+    const deposit = urlParams.get('deposit');
+    if (deposit && currentMode === 'paper') {
+        const depositInput = document.getElementById('initial-deposit');
+        depositInput.value = deposit;
+        addLogEntry(`Pre-filled initial deposit: $${deposit}`, 'info');
+    }
 }

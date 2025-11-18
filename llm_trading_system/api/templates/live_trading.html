@@ -495,6 +495,167 @@
         border: 1px solid #3b82f6;
     }
 
+    /* Session Summary */
+    .session-summary {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        display: none; /* Hidden until session is created */
+    }
+
+    .session-summary.visible {
+        display: block;
+    }
+
+    .session-summary h3 {
+        margin: 0 0 1rem 0;
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #374151;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 1rem;
+    }
+
+    .summary-item {
+        display: flex;
+        flex-direction: column;
+        padding: 0.75rem;
+        background: #f9fafb;
+        border-radius: 6px;
+    }
+
+    .summary-item-label {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        margin-bottom: 0.25rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .summary-item-value {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #111827;
+    }
+
+    /* Activity Log */
+    .activity-log {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .activity-log h3 {
+        margin: 0 0 1rem 0;
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #374151;
+    }
+
+    .log-container {
+        max-height: 200px;
+        overflow-y: auto;
+        background: #1f2937;
+        border-radius: 4px;
+        padding: 0.75rem;
+        font-family: 'Courier New', monospace;
+        font-size: 0.875rem;
+        line-height: 1.5;
+    }
+
+    .log-entry {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+        color: #e5e7eb;
+    }
+
+    .log-entry:last-child {
+        margin-bottom: 0;
+    }
+
+    .log-time {
+        color: #9ca3af;
+        font-size: 0.75rem;
+        flex-shrink: 0;
+    }
+
+    .log-message {
+        flex: 1;
+    }
+
+    .log-entry.info .log-message {
+        color: #60a5fa;
+    }
+
+    .log-entry.success .log-message {
+        color: #10b981;
+    }
+
+    .log-entry.error .log-message {
+        color: #ef4444;
+    }
+
+    .log-entry.warning .log-message {
+        color: #f59e0b;
+    }
+
+    .log-entry.trade .log-message {
+        color: #a78bfa;
+        font-weight: 600;
+    }
+
+    /* Responsive Layout */
+    .main-layout {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 2rem;
+    }
+
+    @media (min-width: 1200px) {
+        .main-layout {
+            grid-template-columns: 380px 1fr;
+            grid-template-areas:
+                "controls chart"
+                "status chart"
+                "log log"
+                "trades trades";
+        }
+
+        .control-panel {
+            grid-area: controls;
+        }
+
+        .status-grid {
+            grid-area: status;
+            grid-template-columns: 1fr;
+        }
+
+        .chart-section {
+            grid-area: chart;
+        }
+
+        .activity-log {
+            grid-area: log;
+        }
+
+        .trades-section {
+            grid-area: trades;
+        }
+    }
+
     @media (max-width: 768px) {
         .control-form {
             grid-template-columns: 1fr;
@@ -504,8 +665,16 @@
             grid-template-columns: 1fr;
         }
 
+        .summary-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
         #live-chart-container {
             height: 400px;
+        }
+
+        .table-container {
+            overflow-x: auto;
         }
     }
 </style>
@@ -533,6 +702,50 @@
     </div>
 </div>
 {% endif %}
+
+<!-- Session Summary (shown after session creation) -->
+<div id="session-summary" class="session-summary">
+    <h3>
+        <span>Session Overview</span>
+        <span id="summary-mode-badge" class="mode-badge paper">Paper</span>
+    </h3>
+    <div class="summary-grid">
+        <div class="summary-item">
+            <span class="summary-item-label">Strategy</span>
+            <span id="summary-strategy" class="summary-item-value">-</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-item-label">Symbol</span>
+            <span id="summary-symbol" class="summary-item-value">-</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-item-label">Timeframe</span>
+            <span id="summary-timeframe" class="summary-item-value">-</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-item-label">Session ID</span>
+            <span id="summary-session-id" class="summary-item-value">-</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-item-label">Running Time</span>
+            <span id="summary-duration" class="summary-item-value">-</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-item-label">Total Trades</span>
+            <span id="summary-trades-count" class="summary-item-value">0</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-item-label">Return %</span>
+            <span id="summary-return-pct" class="summary-item-value">0.00%</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-item-label">Win Rate</span>
+            <span id="summary-winrate" class="summary-item-value">-</span>
+        </div>
+    </div>
+</div>
+
+<div class="main-layout">
 
 <!-- Control Panel -->
 <div class="control-panel">
@@ -690,6 +903,17 @@
     </div>
 </div>
 
+<!-- Activity Log -->
+<div class="activity-log">
+    <h3>Activity Log</h3>
+    <div id="activity-log-container" class="log-container">
+        <div class="log-entry info">
+            <span class="log-time">--:--:--</span>
+            <span class="log-message">Waiting for session...</span>
+        </div>
+    </div>
+</div>
+
 <!-- Trades Section -->
 <div class="trades-section">
     <h3>Recent Trades</h3>
@@ -713,6 +937,8 @@
         </table>
     </div>
 </div>
+
+</div> <!-- End main-layout -->
 
 <!-- Lightweight Charts Library -->
 <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
