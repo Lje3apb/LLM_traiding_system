@@ -6,13 +6,18 @@ import json
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from llm_trading_system.data.data_manager import get_data_manager
 from llm_trading_system.engine.backtest_service import run_backtest_from_config_dict
+from llm_trading_system.engine.live_service import (
+    LiveSessionConfig,
+    LiveSessionManager,
+    get_session_manager,
+)
 from llm_trading_system.strategies import storage
 
 # Create FastAPI app
@@ -247,6 +252,351 @@ async def run_backtest(request: dict[str, Any]) -> dict[str, Any]:
 
 
 # ============================================================================
+# Live Trading API (JSON)
+# ============================================================================
+
+
+@app.post("/api/live/sessions")
+async def create_live_session(request: dict[str, Any]) -> dict[str, Any]:
+    """Create a new live/paper trading session.
+
+    Request body should contain:
+        - mode: "paper" or "real"
+        - symbol: Trading symbol (e.g., "BTCUSDT")
+        - timeframe: Bar timeframe (default: "5m")
+        - strategy_config: Strategy configuration dict or name
+        - llm_enabled: Enable LLM wrapper (default: false)
+        - llm_config: LLM configuration dict (optional)
+        - initial_deposit: Initial deposit for paper trading (default: 10000)
+        - fee_rate: Trading fee rate (default: 0.0005)
+        - slippage_bps: Slippage in basis points (default: 1.0)
+        - poll_interval: Polling interval in seconds (default: 1.0)
+
+    Returns:
+        Session info with session_id, mode, status, and initial state
+
+    Raises:
+        HTTPException: If validation fails (400/422) or creation error (500)
+    """
+    # Extract and validate required fields
+    if "mode" not in request:
+        raise HTTPException(status_code=400, detail="Missing 'mode' field")
+
+    if "symbol" not in request:
+        raise HTTPException(status_code=400, detail="Missing 'symbol' field")
+
+    if "strategy_config" not in request:
+        raise HTTPException(status_code=400, detail="Missing 'strategy_config' field")
+
+    try:
+        # Build LiveSessionConfig
+        config = LiveSessionConfig(
+            mode=request["mode"],
+            symbol=request["symbol"],
+            timeframe=request.get("timeframe", "5m"),
+            strategy_config=request["strategy_config"],
+            llm_enabled=request.get("llm_enabled", False),
+            llm_config=request.get("llm_config"),
+            initial_deposit=request.get("initial_deposit", 10000.0),
+            fee_rate=request.get("fee_rate", 0.0005),
+            slippage_bps=request.get("slippage_bps", 1.0),
+            poll_interval=request.get("poll_interval", 1.0),
+        )
+
+        # Create session
+        manager = get_session_manager()
+        session_id = manager.create_session(config)
+
+        # Get initial status
+        status = manager.get_status(session_id)
+
+        return status
+
+    except ValueError as e:
+        # Configuration error or missing env vars
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        # Other errors
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create session: {type(e).__name__}: {e}"
+        )
+
+
+@app.post("/api/live/sessions/{session_id}/start")
+async def start_live_session(session_id: str) -> dict[str, Any]:
+    """Start a live/paper trading session.
+
+    Args:
+        session_id: Session ID
+
+    Returns:
+        Session status with current state
+
+    Raises:
+        HTTPException: If session not found (404) or start error (500)
+    """
+    try:
+        manager = get_session_manager()
+        status = manager.start_session(session_id)
+        return status
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to start session: {type(e).__name__}: {e}"
+        )
+
+
+@app.post("/api/live/sessions/{session_id}/stop")
+async def stop_live_session(session_id: str) -> dict[str, Any]:
+    """Stop a live/paper trading session.
+
+    Args:
+        session_id: Session ID
+
+    Returns:
+        Session status with final state
+
+    Raises:
+        HTTPException: If session not found (404) or stop error (500)
+    """
+    try:
+        manager = get_session_manager()
+        status = manager.stop_session(session_id)
+        return status
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to stop session: {type(e).__name__}: {e}"
+        )
+
+
+@app.get("/api/live/sessions/{session_id}")
+async def get_live_session_status(session_id: str) -> dict[str, Any]:
+    """Get status and current state of a live/paper trading session.
+
+    Args:
+        session_id: Session ID
+
+    Returns:
+        Session status dictionary with last_state
+
+    Raises:
+        HTTPException: If session not found (404)
+    """
+    try:
+        manager = get_session_manager()
+        return manager.get_status(session_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get session status: {type(e).__name__}: {e}"
+        )
+
+
+@app.get("/api/live/sessions")
+async def list_live_sessions() -> dict[str, list[dict[str, Any]]]:
+    """List all live/paper trading sessions.
+
+    Returns:
+        Dictionary with "sessions" key containing list of session status dicts
+    """
+    try:
+        manager = get_session_manager()
+        sessions = manager.list_status()
+        return {"sessions": sessions}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list sessions: {type(e).__name__}: {e}"
+        )
+
+
+@app.get("/api/live/sessions/{session_id}/trades")
+async def get_live_session_trades(session_id: str, limit: int = 100) -> dict[str, Any]:
+    """Get trades from a live/paper trading session.
+
+    Args:
+        session_id: Session ID
+        limit: Maximum number of trades to return (default: 100)
+
+    Returns:
+        Dictionary with "trades" key containing list of trade dicts
+
+    Raises:
+        HTTPException: If session not found (404)
+    """
+    try:
+        manager = get_session_manager()
+        trades = manager.get_trades(session_id, limit=limit)
+        return {"trades": trades}
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get trades: {type(e).__name__}: {e}"
+        )
+
+
+@app.get("/api/live/sessions/{session_id}/bars")
+async def get_live_session_bars(session_id: str, limit: int = 500) -> dict[str, Any]:
+    """Get recent bars from a live/paper trading session.
+
+    Args:
+        session_id: Session ID
+        limit: Maximum number of bars to return (default: 500)
+
+    Returns:
+        Dictionary with "bars" key containing list of bar dicts
+
+    Raises:
+        HTTPException: If session not found (404)
+    """
+    try:
+        manager = get_session_manager()
+        bars = manager.get_recent_bars(session_id, limit=limit)
+        return {"bars": bars}
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get bars: {type(e).__name__}: {e}"
+        )
+
+
+@app.get("/api/live/sessions/{session_id}/account")
+async def get_live_session_account(session_id: str) -> dict[str, Any]:
+    """Get account snapshot from a live/paper trading session.
+
+    This returns the current account state including:
+    - mode: "paper" or "real"
+    - equity: Current equity (for real mode, from live exchange)
+    - balance: Current balance
+    - position: Current position info (if any)
+
+    Args:
+        session_id: Session ID
+
+    Returns:
+        Account snapshot dictionary
+
+    Raises:
+        HTTPException: If session not found (404)
+    """
+    try:
+        manager = get_session_manager()
+        return manager.get_account_snapshot(session_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get account snapshot: {type(e).__name__}: {e}",
+        )
+
+
+@app.websocket("/ws/live/{session_id}")
+async def live_session_websocket(websocket: WebSocket, session_id: str) -> None:
+    """WebSocket endpoint for real-time live session updates.
+
+    Streams:
+    - state_update: Current session state (periodically)
+    - trade: New trade executed
+    - bar: New bar completed
+
+    Args:
+        websocket: WebSocket connection
+        session_id: Session ID
+
+    Message format:
+        {
+            "type": "state_update" | "trade" | "bar",
+            "payload": {...}
+        }
+    """
+    await websocket.accept()
+
+    try:
+        # Get session manager and validate session exists
+        manager = get_session_manager()
+        try:
+            status = manager.get_status(session_id)
+        except KeyError:
+            await websocket.send_json(
+                {"type": "error", "message": f"Session {session_id} not found"}
+            )
+            await websocket.close()
+            return
+
+        # Send initial state
+        await websocket.send_json({"type": "state_update", "payload": status})
+
+        # Keep connection alive and send updates periodically
+        import asyncio
+
+        while True:
+            # Check if client sent any messages (for keepalive/ping)
+            try:
+                message = await asyncio.wait_for(
+                    websocket.receive_text(), timeout=2.0
+                )
+                # Handle ping/pong or other client messages if needed
+                if message == "ping":
+                    await websocket.send_json({"type": "pong"})
+            except asyncio.TimeoutError:
+                # No message from client, send state update
+                pass
+
+            # Get current state and send update
+            try:
+                status = manager.get_status(session_id)
+                await websocket.send_json({"type": "state_update", "payload": status})
+            except KeyError:
+                # Session was deleted
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": f"Session {session_id} was deleted",
+                    }
+                )
+                break
+            except Exception as e:
+                # Error getting status
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": f"Error getting status: {type(e).__name__}: {e}",
+                    }
+                )
+
+            # Sleep before next update (2 seconds)
+            await asyncio.sleep(2.0)
+
+    except WebSocketDisconnect:
+        # Client disconnected
+        pass
+    except Exception as e:
+        # Unexpected error
+        try:
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "message": f"WebSocket error: {type(e).__name__}: {e}",
+                }
+            )
+        except:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except:
+            pass
+
+
+# ============================================================================
 # Web UI Routes (HTML)
 # ============================================================================
 
@@ -278,6 +628,43 @@ async def ui_index(request: Request) -> HTMLResponse:
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list configs: {e}")
+
+
+@app.get("/ui/live", response_class=HTMLResponse)
+async def ui_live_trading(request: Request) -> HTMLResponse:
+    """Web UI: Live trading page for paper and real trading.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        HTML response with live trading UI
+    """
+    try:
+        import os
+
+        # Check if live trading is enabled
+        live_enabled = os.getenv("EXCHANGE_LIVE_ENABLED", "false").lower() == "true"
+
+        # Get strategies
+        strategies = storage.list_configs()
+
+        # Define symbols and timeframes
+        symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT"]
+        timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
+
+        return templates.TemplateResponse(
+            "live_trading.html",
+            {
+                "request": request,
+                "strategies": strategies,
+                "symbols": symbols,
+                "timeframes": timeframes,
+                "live_enabled": live_enabled,
+            },
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load live trading page: {e}")
 
 
 @app.get("/ui/strategies/new", response_class=HTMLResponse)

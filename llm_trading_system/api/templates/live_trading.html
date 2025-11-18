@@ -1,0 +1,722 @@
+{% extends "base.html" %}
+
+{% block title %}Live Trading - LLM Trading System{% endblock %}
+
+{% block content %}
+<style>
+    :root {
+        --success-color: #10b981;
+        --danger-color: #ef4444;
+        --warning-color: #f59e0b;
+        --neutral-color: #6b7280;
+        --bg-success: rgba(16, 185, 129, 0.1);
+        --bg-danger: rgba(239, 68, 68, 0.1);
+        --bg-warning: rgba(245, 158, 11, 0.1);
+        --border-color: #e5e7eb;
+        --text-muted: #6b7280;
+    }
+
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+        padding-bottom: 1rem;
+        border-bottom: 2px solid var(--border-color);
+    }
+
+    .page-header h2 {
+        margin: 0;
+        font-size: 1.75rem;
+        font-weight: 600;
+        color: #1f2937;
+    }
+
+    /* Control Panel */
+    .control-panel {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .control-panel h3 {
+        margin: 0 0 1rem 0;
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #374151;
+    }
+
+    .control-form {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .form-group {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .form-group label {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: #374151;
+        margin-bottom: 0.5rem;
+    }
+
+    .form-group select,
+    .form-group input {
+        padding: 0.5rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        font-size: 0.875rem;
+    }
+
+    .form-group input:disabled {
+        background: #f3f4f6;
+        color: var(--text-muted);
+        cursor: not-allowed;
+    }
+
+    .mode-selector {
+        display: flex;
+        gap: 1rem;
+        padding: 0.5rem 0;
+    }
+
+    .mode-selector label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: pointer;
+        font-size: 0.875rem;
+    }
+
+    .mode-selector input[type="radio"] {
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+    }
+
+    .control-buttons {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border-color);
+    }
+
+    .btn {
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        font-weight: 500;
+        font-size: 0.875rem;
+        border: none;
+        cursor: pointer;
+        transition: all 0.15s;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .btn-primary {
+        background: #3b82f6;
+        color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        background: #2563eb;
+    }
+
+    .btn-success {
+        background: var(--success-color);
+        color: white;
+    }
+
+    .btn-success:hover:not(:disabled) {
+        background: #059669;
+    }
+
+    .btn-danger {
+        background: var(--danger-color);
+        color: white;
+    }
+
+    .btn-danger:hover:not(:disabled) {
+        background: #dc2626;
+    }
+
+    .btn-secondary {
+        background: #6b7280;
+        color: white;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+        background: #4b5563;
+    }
+
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.375rem 0.75rem;
+        border-radius: 9999px;
+        font-size: 0.875rem;
+        font-weight: 500;
+    }
+
+    .status-badge.created {
+        background: var(--bg-warning);
+        color: var(--warning-color);
+    }
+
+    .status-badge.running {
+        background: var(--bg-success);
+        color: var(--success-color);
+    }
+
+    .status-badge.stopped {
+        background: #f3f4f6;
+        color: var(--neutral-color);
+    }
+
+    .status-badge.error {
+        background: var(--bg-danger);
+        color: var(--danger-color);
+    }
+
+    .status-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: currentColor;
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+
+    .mode-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .mode-badge.paper {
+        background: var(--bg-success);
+        color: var(--success-color);
+    }
+
+    .mode-badge.real {
+        background: var(--bg-danger);
+        color: var(--danger-color);
+    }
+
+    /* Chart Section */
+    .chart-section {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .chart-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .chart-header h3 {
+        margin: 0;
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #374151;
+    }
+
+    .chart-controls {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .chart-controls label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.375rem 0.75rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: white;
+        color: #374151;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+
+    .chart-controls input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+    }
+
+    #live-chart-container {
+        width: 100%;
+        height: 500px;
+        position: relative;
+    }
+
+    /* Account Status */
+    .status-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .status-card {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .status-card h3 {
+        margin: 0 0 1rem 0;
+        font-size: 1.125rem;
+        font-weight: 600;
+        color: #374151;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .account-metrics {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .metric-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .metric-row:last-child {
+        border-bottom: none;
+    }
+
+    .metric-label {
+        font-size: 0.875rem;
+        color: var(--text-muted);
+        font-weight: 500;
+    }
+
+    .metric-value {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #111827;
+    }
+
+    .metric-value.positive {
+        color: var(--success-color);
+    }
+
+    .metric-value.negative {
+        color: var(--danger-color);
+    }
+
+    /* LLM Regime Status */
+    .regime-status {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .regime-label {
+        font-size: 1.25rem;
+        font-weight: 700;
+        text-align: center;
+        padding: 0.5rem;
+        border-radius: 6px;
+        text-transform: uppercase;
+    }
+
+    .regime-label.bullish {
+        background: var(--bg-success);
+        color: var(--success-color);
+    }
+
+    .regime-label.bearish {
+        background: var(--bg-danger);
+        color: var(--danger-color);
+    }
+
+    .regime-label.neutral {
+        background: #f3f4f6;
+        color: var(--neutral-color);
+    }
+
+    .regime-metrics {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+        font-size: 0.875rem;
+    }
+
+    .regime-metric {
+        display: flex;
+        flex-direction: column;
+        padding: 0.5rem;
+        background: #f9fafb;
+        border-radius: 4px;
+    }
+
+    .regime-metric-label {
+        color: var(--text-muted);
+        font-size: 0.75rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .regime-metric-value {
+        font-weight: 600;
+        color: #111827;
+    }
+
+    /* Trades Table */
+    .trades-section {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .trades-section h3 {
+        margin: 0 0 1rem 0;
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #374151;
+    }
+
+    .trades-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.875rem;
+    }
+
+    .trades-table th {
+        background: #f9fafb;
+        padding: 0.75rem 0.5rem;
+        text-align: left;
+        font-weight: 600;
+        color: #374151;
+        border-bottom: 2px solid var(--border-color);
+        white-space: nowrap;
+    }
+
+    .trades-table td {
+        padding: 0.75rem 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .trades-table tr.profit {
+        background: var(--bg-success);
+    }
+
+    .trades-table tr.loss {
+        background: var(--bg-danger);
+    }
+
+    .trade-type-long {
+        color: var(--success-color);
+        font-weight: 600;
+    }
+
+    .trade-type-short {
+        color: var(--danger-color);
+        font-weight: 600;
+    }
+
+    .pnl-positive {
+        color: var(--success-color);
+        font-weight: 600;
+    }
+
+    .pnl-negative {
+        color: var(--danger-color);
+        font-weight: 600;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 2rem;
+        color: var(--text-muted);
+    }
+
+    .alert {
+        padding: 1rem;
+        border-radius: 6px;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+
+    .alert-warning {
+        background: var(--bg-warning);
+        color: var(--warning-color);
+        border: 1px solid var(--warning-color);
+    }
+
+    .alert-info {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+        border: 1px solid #3b82f6;
+    }
+
+    @media (max-width: 768px) {
+        .control-form {
+            grid-template-columns: 1fr;
+        }
+
+        .status-grid {
+            grid-template-columns: 1fr;
+        }
+
+        #live-chart-container {
+            height: 400px;
+        }
+    }
+</style>
+
+<div class="page-header">
+    <h2>Live Trading</h2>
+    <div style="display: flex; gap: 1rem; align-items: center;">
+        <span id="session-status-badge" class="status-badge created">
+            <span class="status-indicator"></span>
+            <span>No Session</span>
+        </span>
+        <span id="mode-badge" class="mode-badge paper">Paper</span>
+    </div>
+</div>
+
+{% if not live_enabled %}
+<div class="alert alert-warning">
+    <svg style="width: 20px; height: 20px; flex-shrink: 0;" fill="currentColor" viewBox="0 0 20 20">
+        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+    </svg>
+    <div>
+        <strong>Real trading is disabled.</strong><br>
+        Set <code>EXCHANGE_LIVE_ENABLED=true</code> and configure Binance API keys to enable live trading mode.
+        Paper trading is available for testing.
+    </div>
+</div>
+{% endif %}
+
+<!-- Control Panel -->
+<div class="control-panel">
+    <h3>Session Configuration</h3>
+
+    <div class="control-form">
+        <div class="form-group">
+            <label for="strategy-select">Strategy</label>
+            <select id="strategy-select">
+                <option value="">-- Select Strategy --</option>
+                {% for strategy in strategies %}
+                <option value="{{ strategy }}">{{ strategy }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="symbol-select">Symbol</label>
+            <select id="symbol-select">
+                {% for symbol in symbols %}
+                <option value="{{ symbol }}">{{ symbol }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="timeframe-select">Timeframe</label>
+            <select id="timeframe-select">
+                {% for tf in timeframes %}
+                <option value="{{ tf }}" {% if tf == "5m" %}selected{% endif %}>{{ tf }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="initial-deposit">
+                <span id="deposit-label">Initial Deposit (USDT)</span>
+                <button id="refresh-balance-btn" style="display: none; margin-left: 0.5rem; padding: 0.25rem 0.5rem; font-size: 0.75rem;" class="btn btn-secondary">Refresh</button>
+            </label>
+            <input type="number" id="initial-deposit" value="10000" step="100" min="10">
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>Trading Mode</label>
+        <div class="mode-selector">
+            <label>
+                <input type="radio" name="trading-mode" value="paper" checked>
+                <span>Paper / Test</span>
+            </label>
+            <label {% if not live_enabled %}title="Live trading is disabled in environment"{% endif %}>
+                <input type="radio" name="trading-mode" value="real" {% if not live_enabled %}disabled{% endif %}>
+                <span>Real / Live</span>
+            </label>
+        </div>
+    </div>
+
+    <div class="control-buttons">
+        <button id="create-session-btn" class="btn btn-primary">Create Session</button>
+        <button id="start-session-btn" class="btn btn-success" disabled>Start Trading</button>
+        <button id="stop-session-btn" class="btn btn-danger" disabled>Stop Trading</button>
+        <div style="flex: 1;"></div>
+        <span id="session-id-display" style="font-size: 0.75rem; color: var(--text-muted);"></span>
+    </div>
+</div>
+
+<!-- Chart Section -->
+<div class="chart-section">
+    <div class="chart-header">
+        <h3>Price Chart</h3>
+        <div class="chart-controls">
+            <label>
+                <input type="checkbox" id="toggle-indicators-rsi">
+                <span>RSI</span>
+            </label>
+            <label>
+                <input type="checkbox" id="toggle-indicators-bb">
+                <span>Bollinger Bands</span>
+            </label>
+            <label>
+                <input type="checkbox" id="toggle-indicators-ema">
+                <span>EMA/MA</span>
+            </label>
+            <label>
+                <input type="checkbox" id="toggle-trades" checked>
+                <span>Show Trades</span>
+            </label>
+        </div>
+    </div>
+    <div id="live-chart-container">
+        <div class="empty-state">Create and start a session to view live chart</div>
+    </div>
+</div>
+
+<!-- Status Grid -->
+<div class="status-grid">
+    <!-- Account Status -->
+    <div class="status-card">
+        <h3>
+            <span>Account Status</span>
+            <span id="account-mode-indicator" class="mode-badge paper">Paper</span>
+        </h3>
+        <div class="account-metrics">
+            <div class="metric-row">
+                <span class="metric-label">Equity</span>
+                <span id="account-equity" class="metric-value">$0.00</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Balance</span>
+                <span id="account-balance" class="metric-value">$0.00</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Realized P&L</span>
+                <span id="account-realized-pnl" class="metric-value">$0.00</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Position Size</span>
+                <span id="account-position-size" class="metric-value">0.0000</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Avg Entry</span>
+                <span id="account-entry-price" class="metric-value">-</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Unrealized P&L</span>
+                <span id="account-unrealized-pnl" class="metric-value">$0.00</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- LLM Regime Status -->
+    <div class="status-card">
+        <h3>LLM Regime Status</h3>
+        <div class="regime-status">
+            <div id="regime-label" class="regime-label neutral">Not Available</div>
+            <div class="regime-metrics">
+                <div class="regime-metric">
+                    <span class="regime-metric-label">Bull Probability</span>
+                    <span id="regime-prob-bull" class="regime-metric-value">-</span>
+                </div>
+                <div class="regime-metric">
+                    <span class="regime-metric-label">Bear Probability</span>
+                    <span id="regime-prob-bear" class="regime-metric-value">-</span>
+                </div>
+                <div class="regime-metric">
+                    <span class="regime-metric-label">Long Multiplier (k)</span>
+                    <span id="regime-k-long" class="regime-metric-value">-</span>
+                </div>
+                <div class="regime-metric">
+                    <span class="regime-metric-label">Short Multiplier (k)</span>
+                    <span id="regime-k-short" class="regime-metric-value">-</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Trades Section -->
+<div class="trades-section">
+    <h3>Recent Trades</h3>
+    <div class="table-container" style="overflow-x: auto;">
+        <table class="trades-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Time</th>
+                    <th>Side</th>
+                    <th>Quantity</th>
+                    <th>Price</th>
+                    <th>P&L</th>
+                </tr>
+            </thead>
+            <tbody id="trades-table-body">
+                <tr>
+                    <td colspan="6" class="empty-state">No trades yet</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Lightweight Charts Library -->
+<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+
+<!-- Live Trading JS -->
+<script src="{{ url_for('static', path='live_trading.js') }}"></script>
+{% endblock %}
