@@ -298,11 +298,11 @@ class LiveTradingEngine:
             if self.on_new_bar:
                 self.on_new_bar(bar)
 
-            # Update portfolio mark-to-market
+            # Update portfolio mark-to-market (checks stop loss/take profit)
             self.portfolio.mark_to_market(bar)
 
-            # Update account state for strategy
-            account = self.portfolio.account
+            # Update account state for strategy (thread-safe snapshot)
+            account = self.portfolio.get_account_snapshot()
 
             # Get order from strategy
             order = self.strategy.on_bar(bar, account)
@@ -311,9 +311,9 @@ class LiveTradingEngine:
             if order is not None:
                 self._execute_order(order, bar)
 
-            # Update result metrics
+            # Update result metrics (thread-safe access)
             self.result.equity_curve.append((bar.timestamp, account.equity))
-            self.result.trades = self.portfolio.trades.copy()
+            self.result.trades = self.portfolio.get_trades_snapshot()
 
         except Exception as e:
             error_msg = f"Error processing bar: {e}"

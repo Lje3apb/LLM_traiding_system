@@ -64,9 +64,6 @@ class IndicatorStrategy(Strategy):
         self._closed_trades_count: int = 0
         self._open_positions_count: int = 0
         self._current_side: Literal["long", "short", "flat"] = "flat"
-        self._entry_price: float | None = None
-        self._tp_price: float | None = None
-        self._sl_price: float | None = None
 
     def reset(self) -> None:
         """Reset internal state before a new backtest run."""
@@ -78,9 +75,6 @@ class IndicatorStrategy(Strategy):
         self._closed_trades_count = 0
         self._open_positions_count = 0
         self._current_side = "flat"
-        self._entry_price = None
-        self._tp_price = None
-        self._sl_price = None
 
     def on_bar(self, bar: Bar, account: AccountState) -> Order | None:
         """Process a new bar and generate trading signals.
@@ -92,6 +86,13 @@ class IndicatorStrategy(Strategy):
         Returns:
             Order to execute or None to maintain current position
         """
+        # Validate bar data (CRITICAL-2 fix)
+        if not self._validate_bar(bar):
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Invalid bar data at {bar.timestamp}: {bar}")
+            return None
+
         # Update OHLCV buffers
         self.closes.append(bar.close)
         self.highs.append(bar.high)
@@ -224,7 +225,18 @@ class IndicatorStrategy(Strategy):
             # Exit short position
             return self._close_position()
 
-        # Check entry signals
+        # Check for conflicting signals (CRITICAL-1 fix)
+        if signals["long_entry"] and signals["short_entry"]:
+            # Both signals true - resolve conflict by taking no action
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Conflicting signals at {bar.timestamp}: both long and short entry. "
+                "Taking no action to avoid undefined behavior."
+            )
+            return None
+
+        # Check entry signals (now mutually exclusive)
         if signals["long_entry"] and self.config.allow_long:
             order = self._prepare_entry("long", current_position, bar)
             if order:
@@ -264,13 +276,7 @@ class IndicatorStrategy(Strategy):
         if target <= base_target:
             return None
 
-        self._entry_price = bar.close
         self._current_side = side
-        if side == "long":
-            self._set_tp_sl_for_long()
-        else:
-            self._set_tp_sl_for_short()
-
         self._open_positions_count = entries_in_position + 1
         order = Order(symbol=self.symbol, side=side, size=target)
         return order
@@ -291,7 +297,20 @@ class IndicatorStrategy(Strategy):
             size = base_fraction * (self.config.martingale_mult ** step)
         else:
             size = base_fraction
-        return min(size, 1.0)  # Cap at 100% equity
+
+        # Apply maximum position size cap (HIGH-1 fix)
+        size = min(size, self.config.max_position_size)
+
+        # Warn if approaching dangerous levels
+        if size > 0.20:  # More than 20% of equity
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Large position size: {size:.2%} of equity "
+                f"(martingale step={step}, closed_trades={self._closed_trades_count})"
+            )
+
+        return min(size, 1.0)  # Final cap at 100%
 
     def _base_position_fraction(self) -> float:
         """Resolve configured base size, including percent inputs."""
@@ -300,26 +319,15 @@ class IndicatorStrategy(Strategy):
             return max(0.0, min(self.config.base_position_pct / 100.0, 1.0))
         return max(0.0, min(self.config.base_size, 1.0))
 
-    def _set_tp_sl_for_long(self) -> None:
-        """Set TP/SL prices for long position."""
-        if not self.config.use_tp_sl or self._entry_price is None:
-            return
-        self._tp_price = self._entry_price * (1 + self.config.tp_long_pct / 100)
-        self._sl_price = self._entry_price * (1 - self.config.sl_long_pct / 100)
-
-    def _set_tp_sl_for_short(self) -> None:
-        """Set TP/SL prices for short position."""
-        if not self.config.use_tp_sl or self._entry_price is None:
-            return
-        self._tp_price = self._entry_price * (1 - self.config.tp_short_pct / 100)
-        self._sl_price = self._entry_price * (1 + self.config.sl_short_pct / 100)
-
     def _check_tp_sl_hit(self, bar: Bar, account: AccountState) -> float | None:
         """Check if TP or SL is hit on current bar.
 
         Note: SL is checked first (as in TradingView), then TP.
         In reality, both could trigger within the same bar, but we
         use a simplified model checking high/low of the bar.
+
+        TP/SL levels are calculated dynamically based on the average
+        entry price from the portfolio, which correctly handles pyramiding.
 
         Args:
             bar: Current bar
@@ -328,21 +336,28 @@ class IndicatorStrategy(Strategy):
         Returns:
             Exit price if TP or SL is hit, otherwise None
         """
-        if account.position_size == 0 or self._entry_price is None:
+        if account.position_size == 0 or account.entry_price is None:
             return None
 
+        # Calculate TP/SL dynamically based on average entry price
         if self._current_side == "long":
+            tp_price = account.entry_price * (1 + self.config.tp_long_pct / 100)
+            sl_price = account.entry_price * (1 - self.config.sl_long_pct / 100)
+
             # Check SL first (conservative approach)
-            if self._sl_price and bar.low <= self._sl_price:
-                return self._sl_price
-            if self._tp_price and bar.high >= self._tp_price:
-                return self._tp_price
+            if bar.low <= sl_price:
+                return sl_price
+            if bar.high >= tp_price:
+                return tp_price
         elif self._current_side == "short":
+            tp_price = account.entry_price * (1 - self.config.tp_short_pct / 100)
+            sl_price = account.entry_price * (1 + self.config.sl_short_pct / 100)
+
             # Check SL first (conservative approach)
-            if self._sl_price and bar.high >= self._sl_price:
-                return self._sl_price
-            if self._tp_price and bar.low <= self._tp_price:
-                return self._tp_price
+            if bar.high >= sl_price:
+                return sl_price
+            if bar.low <= tp_price:
+                return tp_price
 
         return None
 
@@ -350,7 +365,7 @@ class IndicatorStrategy(Strategy):
         """Close current position and reset state.
 
         Args:
-            execution_price: Optional execution price (e.g., TP/SL trigger price)
+            exit_price: Optional execution price (e.g., TP/SL trigger price)
 
         Returns:
             Flat order with execution price in meta if provided
@@ -365,9 +380,6 @@ class IndicatorStrategy(Strategy):
         self._closed_trades_count += 1
         self._open_positions_count = 0
         self._current_side = "flat"
-        self._entry_price = None
-        self._tp_price = None
-        self._sl_price = None
 
     def _is_in_time_window(self, bar: Bar) -> bool:
         """Check if current bar is within the configured time window.
@@ -387,6 +399,38 @@ class IndicatorStrategy(Strategy):
         else:
             # Handle wrap-around (e.g., 22:00 - 06:00)
             return hour >= start or hour <= end
+
+    def _validate_bar(self, bar: Bar) -> bool:
+        """Validate bar data integrity (CRITICAL-2 fix).
+
+        Args:
+            bar: Bar to validate
+
+        Returns:
+            True if bar is valid, False otherwise
+        """
+        import math
+
+        # Check for NaN/inf in all price and volume fields
+        for val in [bar.open, bar.high, bar.low, bar.close, bar.volume]:
+            if not math.isfinite(val):
+                return False
+
+        # Check OHLC relationships
+        if bar.high < bar.low:
+            return False
+        if not (bar.low <= bar.open <= bar.high):
+            return False
+        if not (bar.low <= bar.close <= bar.high):
+            return False
+
+        # Check non-negative volume and positive prices
+        if bar.volume < 0:
+            return False
+        if min(bar.open, bar.high, bar.low, bar.close) <= 0:
+            return False
+
+        return True
 
 
 __all__ = ["IndicatorStrategy"]

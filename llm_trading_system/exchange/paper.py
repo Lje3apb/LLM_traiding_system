@@ -96,10 +96,13 @@ class PaperExchangeClient:
         # position_size is a fraction (e.g., 0.5 = 50% of capital allocated)
         # With leverage, margin used = (position_value / leverage)
         # position_value = |position_units| * current_price
-        available = self.portfolio.account.equity
-        if self.portfolio.account.position_size != 0 and self.current_bar:
-            # Calculate actual position value in USDT
-            position_units = abs(self.portfolio._position_units)
+        # Thread-safe access to portfolio state
+        account = self.portfolio.get_account_snapshot()
+        available = account.equity
+
+        if account.position_size != 0 and self.current_bar:
+            # Calculate actual position value in USDT (thread-safe access)
+            position_units = abs(self.portfolio.get_position_units())
             current_price = self.current_bar.close
             position_value = position_units * current_price
 
@@ -108,10 +111,10 @@ class PaperExchangeClient:
             margin_used = position_value / leverage
 
             # Available = equity - margin_used
-            available = self.portfolio.account.equity - margin_used
+            available = account.equity - margin_used
 
         return AccountInfo(
-            total_balance=self.portfolio.account.equity,
+            total_balance=account.equity,  # Use thread-safe snapshot
             available_balance=max(0.0, available),
             unrealized_pnl=unrealized_pnl,
             positions=positions,
@@ -124,10 +127,13 @@ class PaperExchangeClient:
         Returns:
             List of open positions (0 or 1 for single-position simulator)
         """
-        if self.portfolio.account.position_size == 0.0:
+        # Thread-safe access to portfolio state
+        account = self.portfolio.get_account_snapshot()
+
+        if account.position_size == 0.0:
             return []
 
-        if not self.current_bar or self.portfolio.account.entry_price is None:
+        if not self.current_bar or account.entry_price is None:
             return []
 
         # Calculate unrealized PnL (Issue #4 - Clarified comment)
@@ -135,18 +141,18 @@ class PaperExchangeClient:
         # Therefore, the same formula works for both long and short positions:
         # - Long: positive_units * (current - entry) = profit if current > entry
         # - Short: negative_units * (current - entry) = profit if current < entry (since units are negative)
-        size = self.portfolio.account.position_size
-        entry = self.portfolio.account.entry_price
         current_price = self.current_bar.close
 
         # Single formula works for both long and short because _position_units carries the sign
-        unrealized_pnl = self.portfolio._position_units * (current_price - entry)
+        # Thread-safe access to position_units
+        position_units = self.portfolio.get_position_units()
+        unrealized_pnl = position_units * (current_price - account.entry_price)
 
         return [
             PositionInfo(
                 symbol=self.config.trading_symbol,
-                size=size,
-                entry_price=entry,
+                size=account.position_size,
+                entry_price=account.entry_price,
                 unrealized_pnl=unrealized_pnl,
                 leverage=self.config.leverage,
                 liquidation_price=None,  # Not calculated in paper trading
@@ -310,13 +316,14 @@ class PaperExchangeClient:
         # Market order - execute immediately
         execution_price = self.current_bar.close
 
-        # Convert to position fraction for portfolio
-        current_equity = self.portfolio.account.equity
+        # Convert to position fraction for portfolio (thread-safe access)
+        account = self.portfolio.get_account_snapshot()
+        current_equity = account.equity
         position_value = quantity * execution_price
         target_fraction = position_value / current_equity
 
-        # Determine target position side
-        current_pos = self.portfolio.account.position_size
+        # Determine target position side (thread-safe access)
+        current_pos = account.position_size
 
         # Validate reduce-only orders (Issue #6 - Fixed to reject invalid orders)
         if reduce_only:
