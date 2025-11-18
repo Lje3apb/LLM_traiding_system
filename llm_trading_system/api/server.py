@@ -1768,7 +1768,7 @@ async def ui_list_data_files(request: Request) -> JSONResponse:
                 size_mb = size_bytes / (1024 * 1024)
 
                 # Try to count rows (quick check - just count lines)
-                with open(filepath, "r") as f:
+                with open(filepath, "r", encoding="utf-8") as f:
                     row_count = sum(1 for _ in f) - 1  # -1 for header
 
                 files.append(
