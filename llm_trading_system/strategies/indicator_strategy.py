@@ -64,9 +64,6 @@ class IndicatorStrategy(Strategy):
         self._closed_trades_count: int = 0
         self._open_positions_count: int = 0
         self._current_side: Literal["long", "short", "flat"] = "flat"
-        self._entry_price: float | None = None
-        self._tp_price: float | None = None
-        self._sl_price: float | None = None
 
     def reset(self) -> None:
         """Reset internal state before a new backtest run."""
@@ -78,9 +75,6 @@ class IndicatorStrategy(Strategy):
         self._closed_trades_count = 0
         self._open_positions_count = 0
         self._current_side = "flat"
-        self._entry_price = None
-        self._tp_price = None
-        self._sl_price = None
 
     def on_bar(self, bar: Bar, account: AccountState) -> Order | None:
         """Process a new bar and generate trading signals.
@@ -264,13 +258,7 @@ class IndicatorStrategy(Strategy):
         if target <= base_target:
             return None
 
-        self._entry_price = bar.close
         self._current_side = side
-        if side == "long":
-            self._set_tp_sl_for_long()
-        else:
-            self._set_tp_sl_for_short()
-
         self._open_positions_count = entries_in_position + 1
         order = Order(symbol=self.symbol, side=side, size=target)
         return order
@@ -300,26 +288,15 @@ class IndicatorStrategy(Strategy):
             return max(0.0, min(self.config.base_position_pct / 100.0, 1.0))
         return max(0.0, min(self.config.base_size, 1.0))
 
-    def _set_tp_sl_for_long(self) -> None:
-        """Set TP/SL prices for long position."""
-        if not self.config.use_tp_sl or self._entry_price is None:
-            return
-        self._tp_price = self._entry_price * (1 + self.config.tp_long_pct / 100)
-        self._sl_price = self._entry_price * (1 - self.config.sl_long_pct / 100)
-
-    def _set_tp_sl_for_short(self) -> None:
-        """Set TP/SL prices for short position."""
-        if not self.config.use_tp_sl or self._entry_price is None:
-            return
-        self._tp_price = self._entry_price * (1 - self.config.tp_short_pct / 100)
-        self._sl_price = self._entry_price * (1 + self.config.sl_short_pct / 100)
-
     def _check_tp_sl_hit(self, bar: Bar, account: AccountState) -> float | None:
         """Check if TP or SL is hit on current bar.
 
         Note: SL is checked first (as in TradingView), then TP.
         In reality, both could trigger within the same bar, but we
         use a simplified model checking high/low of the bar.
+
+        TP/SL levels are calculated dynamically based on the average
+        entry price from the portfolio, which correctly handles pyramiding.
 
         Args:
             bar: Current bar
@@ -328,21 +305,28 @@ class IndicatorStrategy(Strategy):
         Returns:
             Exit price if TP or SL is hit, otherwise None
         """
-        if account.position_size == 0 or self._entry_price is None:
+        if account.position_size == 0 or account.entry_price is None:
             return None
 
+        # Calculate TP/SL dynamically based on average entry price
         if self._current_side == "long":
+            tp_price = account.entry_price * (1 + self.config.tp_long_pct / 100)
+            sl_price = account.entry_price * (1 - self.config.sl_long_pct / 100)
+
             # Check SL first (conservative approach)
-            if self._sl_price and bar.low <= self._sl_price:
-                return self._sl_price
-            if self._tp_price and bar.high >= self._tp_price:
-                return self._tp_price
+            if bar.low <= sl_price:
+                return sl_price
+            if bar.high >= tp_price:
+                return tp_price
         elif self._current_side == "short":
+            tp_price = account.entry_price * (1 - self.config.tp_short_pct / 100)
+            sl_price = account.entry_price * (1 + self.config.sl_short_pct / 100)
+
             # Check SL first (conservative approach)
-            if self._sl_price and bar.high >= self._sl_price:
-                return self._sl_price
-            if self._tp_price and bar.low <= self._tp_price:
-                return self._tp_price
+            if bar.high >= sl_price:
+                return sl_price
+            if bar.low <= tp_price:
+                return tp_price
 
         return None
 
@@ -350,7 +334,7 @@ class IndicatorStrategy(Strategy):
         """Close current position and reset state.
 
         Args:
-            execution_price: Optional execution price (e.g., TP/SL trigger price)
+            exit_price: Optional execution price (e.g., TP/SL trigger price)
 
         Returns:
             Flat order with execution price in meta if provided
@@ -365,9 +349,6 @@ class IndicatorStrategy(Strategy):
         self._closed_trades_count += 1
         self._open_positions_count = 0
         self._current_side = "flat"
-        self._entry_price = None
-        self._tp_price = None
-        self._sl_price = None
 
     def _is_in_time_window(self, bar: Bar) -> bool:
         """Check if current bar is within the configured time window.

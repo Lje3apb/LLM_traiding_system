@@ -8,6 +8,7 @@ quantitative strategies.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from llm_trading_system.core.market_snapshot import Settings, build_market_snapshot
@@ -169,8 +170,6 @@ class LLMRegimeWrappedStrategy(Strategy):
             Market snapshot dictionary
         """
         # Build settings from regime config
-        import os
-
         settings = Settings(
             base_asset=self.regime_config.base_asset,
             horizon_hours=self.regime_config.horizon_hours,

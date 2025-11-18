@@ -149,6 +149,10 @@ class PortfolioSimulator:
         current_price = bar.close
         entry_price = self.account.entry_price
 
+        # Prevent division by zero (should never happen in normal operation)
+        if entry_price == 0.0:
+            return False
+
         # Calculate P&L percentage
         pnl_pct = (current_price - entry_price) / entry_price
         if self.account.position_size < 0:  # Short position
@@ -196,6 +200,11 @@ class PortfolioSimulator:
     def _open_position(self, target: float, bar: Bar, *, equity: float) -> None:
         direction = 1.0 if target > 0 else -1.0
         trade_price = self._apply_slippage(bar.close, is_buy=direction > 0)
+
+        # Prevent division by zero (should never happen with real data)
+        if trade_price == 0.0:
+            return
+
         current_equity = equity
         notional = current_equity * abs(target)
         units = (notional / trade_price) * direction
@@ -298,6 +307,11 @@ class PortfolioSimulator:
 
         direction = 1.0 if target > 0 else -1.0
         trade_price = self._apply_slippage(bar.close, is_buy=direction > 0)
+
+        # Prevent division by zero (should never happen with real data)
+        if trade_price == 0.0:
+            return
+
         current_equity = equity
         notional = current_equity * delta_fraction
         units_delta = (notional / trade_price) * direction
@@ -320,6 +334,11 @@ class PortfolioSimulator:
         existing_notional = abs(existing_units) * (self.account.entry_price or trade_price)
         new_units = existing_units + units_delta
         new_notional = existing_notional + notional
+
+        # Prevent division by zero (should never happen in normal operation)
+        if abs(new_units) == 0.0:
+            return
+
         self._position_units = new_units
         self.account.position_size = target
         self.account.entry_price = new_notional / abs(new_units)
@@ -340,7 +359,7 @@ class PortfolioSimulator:
         direction = 1.0 if self._position_units > 0 else -1.0
         exit_price = self._apply_slippage(bar.close, is_buy=direction < 0)
         total_units = abs(self._position_units)
-        if total_units == 0:
+        if total_units == 0 or self.account.entry_price is None:
             self.account.position_size = target
             return
 
