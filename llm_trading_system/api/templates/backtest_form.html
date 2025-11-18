@@ -285,12 +285,22 @@ document.addEventListener('DOMContentLoaded', function() {
                         } else if (data.type === 'info') {
                             progressText.textContent = data.message;
                         } else if (data.type === 'warning') {
-                            downloadStatus.innerHTML += '<br><span style="color: orange;">⚠ ' + data.message + '</span>';
+                            // Create safe warning element to prevent XSS
+                            const warnSpan = document.createElement('span');
+                            warnSpan.style.color = 'orange';
+                            warnSpan.textContent = '⚠ ' + data.message;
+                            downloadStatus.appendChild(document.createElement('br'));
+                            downloadStatus.appendChild(warnSpan);
                         } else if (data.type === 'complete') {
                             // Success!
                             progressBar.style.width = '100%';
                             progressText.textContent = data.message;
-                            downloadStatus.innerHTML = '<span style="color: green;">✓ Success! ' + data.rows + ' rows loaded</span>';
+                            // Create safe success element to prevent XSS
+                            const successSpan = document.createElement('span');
+                            successSpan.style.color = 'green';
+                            successSpan.textContent = '✓ Success! ' + data.rows + ' rows loaded';
+                            downloadStatus.innerHTML = '';  // Clear first
+                            downloadStatus.appendChild(successSpan);
 
                             // Reload file list and select the new file
                             await loadDataFiles();
@@ -311,10 +321,14 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
         } catch (error) {
-            // Show error
+            // Show error - use textContent to prevent XSS
             progressBar.style.width = '0%';
             progressText.textContent = '';
-            downloadStatus.innerHTML = '<span style="color: red;">✗ Error: ' + error.message + '</span>';
+            const errorSpan = document.createElement('span');
+            errorSpan.style.color = 'red';
+            errorSpan.textContent = '✗ Error: ' + error.message;
+            downloadStatus.innerHTML = '';  // Clear first
+            downloadStatus.appendChild(errorSpan);
 
             // Hide progress
             setTimeout(() => {

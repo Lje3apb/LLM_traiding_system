@@ -29,6 +29,8 @@ app = FastAPI(
 
 # Setup templates and static files
 BASE_DIR = Path(__file__).resolve().parent
+# Jinja2Templates enables autoescape by default for .html, .htm, .xml files
+# This prevents XSS attacks by automatically escaping user-provided content
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 

@@ -48,6 +48,18 @@
             <input type="text" id="ollama_base_url" name="ollama_base_url" value="{{ config.llm.ollama_base_url }}" required>
         </div>
 
+        {% if ollama_connection_error %}
+        <div style="background-color: #fef3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 12px; margin-top: 8px; display: flex; align-items: flex-start; gap: 8px;">
+            <svg style="width: 20px; height: 20px; color: #856404; flex-shrink: 0;" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+            </svg>
+            <div style="color: #856404;">
+                <strong>Cannot connect to Ollama server</strong><br>
+                <small>Unable to reach Ollama at <code>{{ config.llm.ollama_base_url }}</code>. Make sure Ollama is running and the URL is correct.</small>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="form-group">
             <label for="openai_api_base">OpenAI API Base URL</label>
             <input type="text" id="openai_api_base" name="openai_api_base" value="{{ config.llm.openai_api_base or '' }}" placeholder="https://api.openai.com/v1">
