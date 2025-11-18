@@ -88,12 +88,21 @@ load_env()
 
 def run_full_cycle_test(
     use_real_data: bool = False,
-    ollama_model: str = "deepseek-v3.1:671b-cloud",
-    ollama_url: str = "http://localhost:11434",
+    ollama_model: str | None = None,
+    ollama_url: str | None = None,
 ) -> None:
-    """Run complete trading system test from data collection to position sizing."""
+    """Run complete trading system test from data collection to position sizing.
 
+    Args:
+        use_real_data: If True, fetch real market data; otherwise use mock data
+        ollama_model: Override default model from config (optional)
+        ollama_url: Override default Ollama URL from config (optional)
+    """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+    # Load unified configuration
+    from llm_trading_system.config.service import load_config
+    cfg = load_config()
 
     print("=" * 80)
     print("FULL CYCLE INTEGRATION TEST")
@@ -130,13 +139,24 @@ def run_full_cycle_test(
     # =========================================================================
     print("[STEP 2] Initializing LLM infrastructure...")
     print("-" * 80)
-    print(f"Model: {ollama_model}")
-    print(f"Endpoint: {ollama_url}")
 
-    base_size = 0.01  # 1% of capital
+    # Use provided values or fall back to config
+    model = ollama_model or cfg.llm.default_model
+    base_url = ollama_url or cfg.llm.ollama_base_url
+    temperature = cfg.llm.temperature
+    timeout = cfg.llm.timeout_seconds
+
+    print(f"Model: {model}")
+    print(f"Endpoint: {base_url}")
+    print(f"Temperature: {temperature}")
+    print(f"Timeout: {timeout}s")
+
+    # Load risk config
+    base_size = cfg.risk.base_long_size  # Use config value
+    k_max = cfg.risk.k_max
 
     try:
-        provider = OllamaProvider(base_url=ollama_url, model=ollama_model, timeout=180)
+        provider = OllamaProvider(base_url=base_url, model=model, timeout=timeout)
         retry_policy = RetryPolicy(max_retries=2, base_delay=2.0)
         client = LLMClientSync(provider=provider, retry_policy=retry_policy)
 
@@ -145,8 +165,8 @@ def run_full_cycle_test(
             snapshot=snapshot,
             client=client,
             base_size=base_size,
-            k_max=2.0,
-            temperature=0.1,
+            k_max=k_max,
+            temperature=temperature,
         )
 
         llm_output = result["llm_output"]
@@ -221,7 +241,8 @@ def run_full_cycle_test(
     print()
 
     print("POSITION SIZING:")
-    print(f"  Base size:          {base_size * 100:.1f}% capital")
+    print(f"  Base size:          {base_size * 100:.1f}% capital (from config)")
+    print(f"  K_max:              {k_max:.2f}x (from config)")
     print(f"  Long multiplier:    {k_long:.4f}x")
     print(f"  Short multiplier:   {k_short:.4f}x")
     print(f"  → LONG position:    {pos_long * 100:.2f}% capital")

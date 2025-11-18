@@ -620,23 +620,32 @@ def build_user_prompt(snapshot: Dict[str, Any], horizon_hours: int, base_asset: 
 
 
 def load_settings() -> Settings:
-    """Load application settings from environment variables."""
+    """Load application settings from AppConfig (unified configuration service).
 
+    This function now uses the centralized AppConfig instead of scattered os.getenv() calls.
+    The AppConfig is loaded from ~/.llm_trading/config.json, or created from environment
+    variables if the file doesn't exist yet.
+
+    For backward compatibility, this function still returns a Settings dataclass.
+    """
+    # Import here to avoid circular dependencies
+    from llm_trading_system.config.service import load_config
+
+    # Load unified configuration
+    cfg = load_config()
+
+    # Map AppConfig to Settings for backward compatibility
     return Settings(
-        base_asset=os.getenv("BASE_ASSET", "BTCUSDT"),
-        horizon_hours=int(os.getenv("HORIZON_HOURS", "4")),
-        binance_base_url=os.getenv("BINANCE_BASE_URL", "https://api.binance.com"),
-        binance_fapi_url=os.getenv("BINANCE_FAPI_URL", "https://fapi.binance.com"),
-        coinmetrics_base_url=os.getenv(
-            "COINMETRICS_BASE_URL", "https://community-api.coinmetrics.io/v4"
-        ),
-        blockchain_com_base_url=os.getenv(
-            "BLOCKCHAIN_COM_BASE_URL", "https://api.blockchain.info"
-        ),
-        cryptopanic_api_key=os.getenv("CRYPTOPANIC_API_KEY"),
-        cryptopanic_base_url=os.getenv("CRYPTOPANIC_BASE_URL", "https://cryptopanic.com/api/v1"),
-        newsapi_key=os.getenv("NEWSAPI_KEY"),
-        newsapi_base_url=os.getenv("NEWSAPI_BASE_URL", "https://newsapi.org/v2"),
+        base_asset=cfg.market.base_asset,
+        horizon_hours=cfg.market.horizon_hours,
+        binance_base_url=cfg.api.binance_base_url,
+        binance_fapi_url=cfg.api.binance_fapi_url,
+        coinmetrics_base_url=cfg.api.coinmetrics_base_url,
+        blockchain_com_base_url=cfg.api.blockchain_com_base_url,
+        cryptopanic_api_key=cfg.api.cryptopanic_api_key,
+        cryptopanic_base_url=cfg.api.cryptopanic_base_url,
+        newsapi_key=cfg.api.newsapi_key,
+        newsapi_base_url=cfg.api.newsapi_base_url,
     )
 
 

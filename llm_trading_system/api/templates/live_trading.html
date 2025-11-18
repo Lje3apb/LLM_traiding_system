@@ -697,7 +697,7 @@
     </svg>
     <div>
         <strong>Real trading is disabled.</strong><br>
-        Set <code>EXCHANGE_LIVE_ENABLED=true</code> and configure Binance API keys to enable live trading mode.
+        Enable live trading in <a href="/ui/settings" style="color: inherit; text-decoration: underline;">Settings</a> and configure Binance API keys to enable live trading mode.
         Paper trading is available for testing.
     </div>
 </div>
@@ -766,7 +766,7 @@
             <label for="symbol-select">Symbol</label>
             <select id="symbol-select">
                 {% for symbol in symbols %}
-                <option value="{{ symbol }}">{{ symbol }}</option>
+                <option value="{{ symbol }}" {% if symbol == default_symbol %}selected{% endif %}>{{ symbol }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -775,7 +775,7 @@
             <label for="timeframe-select">Timeframe</label>
             <select id="timeframe-select">
                 {% for tf in timeframes %}
-                <option value="{{ tf }}" {% if tf == "5m" %}selected{% endif %}>{{ tf }}</option>
+                <option value="{{ tf }}" {% if tf == default_timeframe %}selected{% endif %}>{{ tf }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -785,7 +785,8 @@
                 <span id="deposit-label">Initial Deposit (USDT)</span>
                 <button id="refresh-balance-btn" style="display: none; margin-left: 0.5rem; padding: 0.25rem 0.5rem; font-size: 0.75rem;" class="btn btn-secondary">Refresh</button>
             </label>
-            <input type="number" id="initial-deposit" value="10000" step="100" min="10">
+            <input type="number" id="initial-deposit" value="{{ default_initial_deposit }}" data-default="{{ default_initial_deposit }}" step="100" min="10">
+            <p class="help-text" id="deposit-help" style="margin-top: 0.25rem; font-size: 0.75rem; color: #6b7280;">Enter your simulated starting balance for paper trading</p>
         </div>
     </div>
 

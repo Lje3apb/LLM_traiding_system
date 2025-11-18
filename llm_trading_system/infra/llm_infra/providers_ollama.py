@@ -1,7 +1,10 @@
 """Ollama local model provider implementation."""
 
+import logging
 import requests
 from typing import List, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaProvider:
@@ -92,3 +95,67 @@ class OllamaProvider:
         )
         response.raise_for_status()
         return response.json()
+
+
+def list_ollama_models(base_url: str) -> list[str]:
+    """Retrieve list of available models from Ollama server.
+
+    Args:
+        base_url: Base URL for Ollama API (e.g., "http://localhost:11434")
+
+    Returns:
+        List of model names available on the server.
+        Returns empty list if request fails or server is unreachable.
+
+    Example:
+        >>> models = list_ollama_models("http://localhost:11434")
+        >>> print(models)
+        ['llama3.2', 'deepseek-v3.1:671b-cloud', 'mistral:latest']
+    """
+    url = f"{base_url.rstrip('/')}/api/tags"
+
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        # Expected format: {"models": [{"name": "llama3.2", ...}, ...]}
+        if not isinstance(data, dict) or "models" not in data:
+            logger.warning(
+                "Unexpected response format from Ollama API at %s: missing 'models' key",
+                url
+            )
+            return []
+
+        models_list = data.get("models", [])
+        if not isinstance(models_list, list):
+            logger.warning(
+                "Unexpected response format from Ollama API at %s: 'models' is not a list",
+                url
+            )
+            return []
+
+        # Extract model names
+        model_names: list[str] = []
+        for model in models_list:
+            if isinstance(model, dict) and "name" in model:
+                model_names.append(model["name"])
+
+        logger.info("Retrieved %d models from Ollama at %s", len(model_names), base_url)
+        return model_names
+
+    except requests.exceptions.Timeout:
+        logger.warning("Timeout while connecting to Ollama API at %s", url)
+        return []
+    except requests.exceptions.ConnectionError:
+        logger.warning("Connection error while connecting to Ollama API at %s", url)
+        return []
+    except requests.exceptions.HTTPError as exc:
+        logger.warning("HTTP error from Ollama API at %s: %s", url, exc)
+        return []
+    except ValueError as exc:
+        logger.warning("Invalid JSON response from Ollama API at %s: %s", url, exc)
+        return []
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Unexpected error while fetching models from %s: %s", url, exc)
+        return []

@@ -1,0 +1,457 @@
+{% extends "base.html" %}
+
+{% block title %}System Settings - LLM Trading System{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>System Settings</h2>
+    <p>Configure LLM models, API keys, risk parameters, and system defaults</p>
+</div>
+
+{% if saved %}
+<div class="alert alert-success">
+    ✓ Settings saved successfully to ~/.llm_trading/config.json
+</div>
+{% endif %}
+
+<form method="POST" action="/ui/settings" class="settings-form">
+
+    <!-- LLM and Models Section -->
+    <div class="form-section">
+        <h3>🤖 LLM and Models</h3>
+
+        <div class="form-group">
+            <label for="llm_provider">LLM Provider</label>
+            <select id="llm_provider" name="llm_provider" required>
+                <option value="ollama" {% if config.llm.llm_provider == 'ollama' %}selected{% endif %}>Ollama (Local)</option>
+                <option value="openai" {% if config.llm.llm_provider == 'openai' %}selected{% endif %}>OpenAI</option>
+                <option value="router" {% if config.llm.llm_provider == 'router' %}selected{% endif %}>Router (Multi-provider)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="default_model">Default Model</label>
+            <select id="default_model" name="default_model" required>
+                {% if ollama_models %}
+                    {% for model in ollama_models %}
+                    <option value="{{ model }}" {% if config.llm.default_model == model %}selected{% endif %}>{{ model }}</option>
+                    {% endfor %}
+                {% else %}
+                    <option value="{{ config.llm.default_model }}" selected>{{ config.llm.default_model }}</option>
+                {% endif %}
+            </select>
+            <small>{% if ollama_models %}{{ ollama_models|length }} model(s) available{% else %}No models detected (Ollama not running?){% endif %}</small>
+        </div>
+
+        <div class="form-group">
+            <label for="ollama_base_url">Ollama Base URL</label>
+            <input type="text" id="ollama_base_url" name="ollama_base_url" value="{{ config.llm.ollama_base_url }}" required>
+        </div>
+
+        <div class="form-group">
+            <label for="openai_api_base">OpenAI API Base URL</label>
+            <input type="text" id="openai_api_base" name="openai_api_base" value="{{ config.llm.openai_api_base or '' }}" placeholder="https://api.openai.com/v1">
+            <small>Optional - for OpenAI provider</small>
+        </div>
+
+        <div class="form-group">
+            <label for="openai_api_key">OpenAI API Key</label>
+            <input type="password" id="openai_api_key" name="openai_api_key" value="" placeholder="{% if config.llm.openai_api_key %}••••••••••••{% else %}Leave blank if not using{% endif %}">
+            <small>{% if config.llm.openai_api_key %}Currently set - leave blank to keep existing{% else %}Not set{% endif %}</small>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="temperature">Temperature</label>
+                <input type="number" id="temperature" name="temperature" value="{{ config.llm.temperature }}" step="0.01" min="0" max="2" required>
+                <small>0.0 = deterministic, 2.0 = creative</small>
+            </div>
+
+            <div class="form-group">
+                <label for="timeout_seconds">Timeout (seconds)</label>
+                <input type="number" id="timeout_seconds" name="timeout_seconds" value="{{ config.llm.timeout_seconds }}" min="1" required>
+            </div>
+        </div>
+    </div>
+
+    <!-- API Keys and External Services Section -->
+    <div class="form-section">
+        <h3>🔑 API Keys and External Services</h3>
+
+        <h4>NewsAPI</h4>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="newsapi_key">NewsAPI Key</label>
+                <input type="password" id="newsapi_key" name="newsapi_key" value="" placeholder="{% if config.api.newsapi_key %}••••••••••••{% else %}Optional{% endif %}">
+                <small>{% if config.api.newsapi_key %}Currently set - leave blank to keep{% else %}Not set{% endif %}</small>
+            </div>
+            <div class="form-group">
+                <label for="newsapi_base_url">NewsAPI Base URL</label>
+                <input type="text" id="newsapi_base_url" name="newsapi_base_url" value="{{ config.api.newsapi_base_url }}" required>
+            </div>
+        </div>
+
+        <h4>CryptoPanic</h4>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="cryptopanic_api_key">CryptoPanic API Key</label>
+                <input type="password" id="cryptopanic_api_key" name="cryptopanic_api_key" value="" placeholder="{% if config.api.cryptopanic_api_key %}••••••••••••{% else %}Optional{% endif %}">
+                <small>{% if config.api.cryptopanic_api_key %}Currently set - leave blank to keep{% else %}Not set{% endif %}</small>
+            </div>
+            <div class="form-group">
+                <label for="cryptopanic_base_url">CryptoPanic Base URL</label>
+                <input type="text" id="cryptopanic_base_url" name="cryptopanic_base_url" value="{{ config.api.cryptopanic_base_url }}" required>
+            </div>
+        </div>
+
+        <h4>On-chain Data Services</h4>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="coinmetrics_base_url">CoinMetrics Base URL</label>
+                <input type="text" id="coinmetrics_base_url" name="coinmetrics_base_url" value="{{ config.api.coinmetrics_base_url }}" required>
+            </div>
+            <div class="form-group">
+                <label for="blockchain_com_base_url">Blockchain.com Base URL</label>
+                <input type="text" id="blockchain_com_base_url" name="blockchain_com_base_url" value="{{ config.api.blockchain_com_base_url }}" required>
+            </div>
+        </div>
+
+        <h4>Binance</h4>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="binance_base_url">Binance Spot Base URL</label>
+                <input type="text" id="binance_base_url" name="binance_base_url" value="{{ config.api.binance_base_url }}" required>
+            </div>
+            <div class="form-group">
+                <label for="binance_fapi_url">Binance Futures Base URL</label>
+                <input type="text" id="binance_fapi_url" name="binance_fapi_url" value="{{ config.api.binance_fapi_url }}" required>
+            </div>
+        </div>
+    </div>
+
+    <!-- Market and Regime Section -->
+    <div class="form-section">
+        <h3>📊 Market and Regime</h3>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="base_asset">Base Asset</label>
+                <input type="text" id="base_asset" name="base_asset" value="{{ config.market.base_asset }}" required>
+                <small>e.g., BTCUSDT</small>
+            </div>
+
+            <div class="form-group">
+                <label for="horizon_hours">Prediction Horizon (hours)</label>
+                <input type="number" id="horizon_hours" name="horizon_hours" value="{{ config.market.horizon_hours }}" min="1" required>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Data Sources</label>
+            <div class="checkbox-group">
+                <label>
+                    <input type="checkbox" name="use_news" {% if config.market.use_news %}checked{% endif %}>
+                    Use News Sentiment
+                </label>
+                <label>
+                    <input type="checkbox" name="use_onchain" {% if config.market.use_onchain %}checked{% endif %}>
+                    Use On-chain Metrics
+                </label>
+                <label>
+                    <input type="checkbox" name="use_funding" {% if config.market.use_funding %}checked{% endif %}>
+                    Use Funding Rates
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Risk and Aggressiveness Section -->
+    <div class="form-section">
+        <h3>⚠️ Risk and Aggressiveness</h3>
+        <p class="section-description">
+            These parameters control the aggressive LLM regime-based position sizing.<br>
+            <strong>Higher values = more aggressive position scaling</strong>
+        </p>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="base_long_size">Base Long Size</label>
+                <input type="number" id="base_long_size" name="base_long_size" value="{{ config.risk.base_long_size }}" step="0.001" min="0" max="1" required>
+                <small>Fraction of capital (0-1)</small>
+            </div>
+
+            <div class="form-group">
+                <label for="base_short_size">Base Short Size</label>
+                <input type="number" id="base_short_size" name="base_short_size" value="{{ config.risk.base_short_size }}" step="0.001" min="0" max="1" required>
+                <small>Fraction of capital (0-1)</small>
+            </div>
+
+            <div class="form-group">
+                <label for="k_max">K Max (Position Multiplier Cap)</label>
+                <input type="number" id="k_max" name="k_max" value="{{ config.risk.k_max }}" step="0.1" min="0" required>
+                <small>Maximum position multiplier</small>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="edge_gain">Edge Gain</label>
+                <input type="number" id="edge_gain" name="edge_gain" value="{{ config.risk.edge_gain }}" step="0.1" min="0" required>
+                <small>Edge amplification factor (default: 2.5)</small>
+            </div>
+
+            <div class="form-group">
+                <label for="edge_gamma">Edge Gamma</label>
+                <input type="number" id="edge_gamma" name="edge_gamma" value="{{ config.risk.edge_gamma }}" step="0.01" min="0" max="1" required>
+                <small>Nonlinear compression (default: 0.7)</small>
+            </div>
+
+            <div class="form-group">
+                <label for="base_k">Base K (Neutral Multiplier)</label>
+                <input type="number" id="base_k" name="base_k" value="{{ config.risk.base_k }}" step="0.1" min="0" required>
+                <small>Neutral regime multiplier (default: 0.5)</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Exchange and Real Trading Section -->
+    <div class="form-section">
+        <h3>🏦 Exchange and Real Trading</h3>
+        <div class="alert alert-warning">
+            <strong>⚠️ Warning:</strong> Real trading involves financial risk. Always test with paper trading first!
+        </div>
+
+        <div class="form-group">
+            <label for="exchange_name">Exchange Name</label>
+            <input type="text" id="exchange_name" name="exchange_name" value="{{ config.exchange.exchange_name }}" required>
+            <small>Currently supports: binance</small>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="exchange_api_key">Exchange API Key</label>
+                <input type="password" id="exchange_api_key" name="exchange_api_key" value="" placeholder="{% if config.exchange.api_key %}••••••••••••{% else %}Not set{% endif %}">
+                <small>{% if config.exchange.api_key %}Currently set - leave blank to keep{% else %}Not set (required for real trading){% endif %}</small>
+            </div>
+
+            <div class="form-group">
+                <label for="exchange_api_secret">Exchange API Secret</label>
+                <input type="password" id="exchange_api_secret" name="exchange_api_secret" value="" placeholder="{% if config.exchange.api_secret %}••••••••••••{% else %}Not set{% endif %}">
+                <small>{% if config.exchange.api_secret %}Currently set - leave blank to keep{% else %}Not set (required for real trading){% endif %}</small>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="default_symbol">Default Symbol</label>
+                <input type="text" id="default_symbol" name="default_symbol" value="{{ config.exchange.default_symbol }}" required>
+            </div>
+
+            <div class="form-group">
+                <label for="default_timeframe">Default Timeframe</label>
+                <input type="text" id="default_timeframe" name="default_timeframe" value="{{ config.exchange.default_timeframe }}" required>
+                <small>e.g., 5m, 15m, 1h, 4h</small>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Trading Mode</label>
+            <div class="checkbox-group">
+                <label>
+                    <input type="checkbox" name="use_testnet" {% if config.exchange.use_testnet %}checked{% endif %}>
+                    Use Testnet (recommended for testing)
+                </label>
+                <label class="danger-checkbox">
+                    <input type="checkbox" name="live_trading_enabled" {% if config.exchange.live_trading_enabled %}checked{% endif %}>
+                    <strong>Enable Live Trading</strong> (REAL MONEY - use with caution!)
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- UI Defaults Section -->
+    <div class="form-section">
+        <h3>🎨 UI Defaults</h3>
+        <p class="section-description">Default values for backtest and UI forms</p>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="default_initial_deposit">Default Initial Deposit</label>
+                <input type="number" id="default_initial_deposit" name="default_initial_deposit" value="{{ config.ui.default_initial_deposit }}" step="0.01" min="0" required>
+            </div>
+
+            <div class="form-group">
+                <label for="default_backtest_equity">Default Backtest Equity</label>
+                <input type="number" id="default_backtest_equity" name="default_backtest_equity" value="{{ config.ui.default_backtest_equity }}" step="0.01" min="0" required>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="default_commission">Default Commission (%)</label>
+                <input type="number" id="default_commission" name="default_commission" value="{{ config.ui.default_commission }}" step="0.001" min="0" required>
+            </div>
+
+            <div class="form-group">
+                <label for="default_slippage">Default Slippage (%)</label>
+                <input type="number" id="default_slippage" name="default_slippage" value="{{ config.ui.default_slippage }}" step="0.001" min="0" required>
+            </div>
+        </div>
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Save Settings</button>
+        <a href="/ui/" class="btn btn-secondary">Cancel</a>
+    </div>
+</form>
+
+<style>
+.settings-form {
+    max-width: 1200px;
+}
+
+.form-section {
+    background: #f9f9f9;
+    padding: 20px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+.form-section h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #333;
+    font-size: 1.3em;
+}
+
+.form-section h4 {
+    margin-top: 15px;
+    margin-bottom: 10px;
+    color: #555;
+    font-size: 1.1em;
+}
+
+.section-description {
+    color: #666;
+    margin-bottom: 15px;
+    font-size: 0.95em;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+    color: #333;
+}
+
+.form-group input[type="text"],
+.form-group input[type="password"],
+.form-group input[type="number"],
+.form-group select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.form-group small {
+    display: block;
+    margin-top: 4px;
+    color: #666;
+    font-size: 0.85em;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 15px;
+    margin-bottom: 15px;
+}
+
+.checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.checkbox-group label {
+    display: flex;
+    align-items: center;
+    font-weight: normal;
+}
+
+.checkbox-group input[type="checkbox"] {
+    margin-right: 8px;
+    width: auto;
+}
+
+.danger-checkbox {
+    color: #d32f2f;
+}
+
+.alert {
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    border-radius: 4px;
+    border-left: 4px solid;
+}
+
+.alert-success {
+    background-color: #e8f5e9;
+    border-left-color: #4caf50;
+    color: #2e7d32;
+}
+
+.alert-warning {
+    background-color: #fff3e0;
+    border-left-color: #ff9800;
+    color: #e65100;
+}
+
+.form-actions {
+    margin-top: 30px;
+    display: flex;
+    gap: 10px;
+}
+
+.btn {
+    padding: 10px 24px;
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+}
+
+.btn-primary {
+    background-color: #2196f3;
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #1976d2;
+}
+
+.btn-secondary {
+    background-color: #757575;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background-color: #616161;
+}
+
+@media (max-width: 768px) {
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+{% endblock %}
