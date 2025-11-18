@@ -81,15 +81,12 @@ class TestPositionMultipliers(unittest.TestCase):
             base_long_size=0.01,
             base_short_size=0.01,
         )
-        # With prob_bull = prob_bear = 0.5 and all scores = 0, both multipliers should be ~1.0
-        # But note the dead zone (d0=0.1) means d_eff = 0
-        # So k_dir_long = k_dir_short = 1.0
-        # All other factors are 1.0 (sentiment, chain, trend all neutral)
-        # Risk factor = 1.0 (no risk)
-        # Result: k_long = k_short = 1.0
-        self.assertAlmostEqual(k_long, 1.0, places=4)
-        self.assertAlmostEqual(k_short, 1.0, places=4)
-        self.assertAlmostEqual(pos_size, 0.01, places=6)
+        # With prob_bull = prob_bear = 0.5 and all scores = 0:
+        # New aggressive logic: BASE_K = 0.5, edge = 0, no scaling
+        # Result: k_long = k_short = BASE_K = 0.5
+        self.assertAlmostEqual(k_long, 0.5, places=4)
+        self.assertAlmostEqual(k_short, 0.5, places=4)
+        self.assertAlmostEqual(pos_size, 0.005, places=6)
 
     def test_bullish_regime_increases_long_decreases_short(self) -> None:
         """Test that bullish regime increases long multiplier and decreases short."""
@@ -104,9 +101,12 @@ class TestPositionMultipliers(unittest.TestCase):
             base_short_size=0.01,
         )
 
-        # In bullish regime: k_long > 1.0, k_short < 1.0
-        self.assertGreater(k_long, 1.0)
-        self.assertLess(k_short, 1.0)
+        # In bullish regime: k_long > k_short
+        # Note: with new aggressive logic and prob_bull=0.7, k_long may still be < 1.0
+        # but it should be significantly higher than k_short
+        self.assertGreater(k_long, k_short)
+        # k_long should be > neutral baseline (0.5)
+        self.assertGreater(k_long, 0.5)
 
     def test_bearish_regime_increases_short_decreases_long(self) -> None:
         """Test that bearish regime increases short multiplier and decreases long."""
@@ -121,61 +121,78 @@ class TestPositionMultipliers(unittest.TestCase):
             base_short_size=0.01,
         )
 
-        # In bearish regime: k_short > 1.0, k_long < 1.0
-        self.assertGreater(k_short, 1.0)
-        self.assertLess(k_long, 1.0)
+        # In bearish regime: k_short > k_long
+        # Note: with new aggressive logic and prob_bear=0.7, k_short may still be < 1.0
+        # but it should be significantly higher than k_long
+        self.assertGreater(k_short, k_long)
+        # k_short should be > neutral baseline (0.5)
+        self.assertGreater(k_short, 0.5)
 
     def test_positive_sentiment_boosts_longs(self) -> None:
-        """Test that positive sentiment boosts long positions."""
-        llm_output_neutral = self.base_llm_output.copy()
-        llm_output_neutral["scores"] = llm_output_neutral["scores"].copy()
+        """Test that positive sentiment (via confidence) boosts long positions."""
+        # Note: In new implementation, sentiment is not directly used
+        # Instead, we test confidence_level which affects position sizing
+        llm_output_low_conf = self.base_llm_output.copy()
+        llm_output_low_conf["prob_bull"] = 0.7
+        llm_output_low_conf["prob_bear"] = 0.3
+        llm_output_low_conf["confidence_level"] = "low"
+        llm_output_low_conf["scores"] = llm_output_low_conf["scores"].copy()
 
-        llm_output_positive = self.base_llm_output.copy()
-        llm_output_positive["scores"] = llm_output_positive["scores"].copy()
-        llm_output_positive["scores"]["btc_sentiment"] = 0.8
+        llm_output_high_conf = self.base_llm_output.copy()
+        llm_output_high_conf["prob_bull"] = 0.7
+        llm_output_high_conf["prob_bear"] = 0.3
+        llm_output_high_conf["confidence_level"] = "high"
+        llm_output_high_conf["scores"] = llm_output_high_conf["scores"].copy()
 
-        _, k_long_neutral, _ = compute_position_multipliers(
-            llm_output_neutral,
+        _, k_long_low, _ = compute_position_multipliers(
+            llm_output_low_conf,
             side="long",
             base_long_size=0.01,
             base_short_size=0.01,
         )
 
-        _, k_long_positive, _ = compute_position_multipliers(
-            llm_output_positive,
+        _, k_long_high, _ = compute_position_multipliers(
+            llm_output_high_conf,
             side="long",
             base_long_size=0.01,
             base_short_size=0.01,
         )
 
-        # Positive sentiment should increase long multiplier
-        self.assertGreater(k_long_positive, k_long_neutral)
+        # High confidence should increase long multiplier
+        self.assertGreater(k_long_high, k_long_low)
 
     def test_negative_sentiment_boosts_shorts(self) -> None:
-        """Test that negative sentiment boosts short positions."""
-        llm_output_neutral = self.base_llm_output.copy()
-        llm_output_neutral["scores"] = llm_output_neutral["scores"].copy()
+        """Test that negative sentiment (via low confidence for bearish) affects shorts."""
+        # Note: In new implementation, sentiment is not directly used
+        # Instead, we test confidence_level which affects position sizing
+        llm_output_low_conf = self.base_llm_output.copy()
+        llm_output_low_conf["prob_bull"] = 0.3
+        llm_output_low_conf["prob_bear"] = 0.7
+        llm_output_low_conf["confidence_level"] = "low"
+        llm_output_low_conf["scores"] = llm_output_low_conf["scores"].copy()
 
-        llm_output_negative = self.base_llm_output.copy()
-        llm_output_negative["scores"] = llm_output_negative["scores"].copy()
-        llm_output_negative["scores"]["btc_sentiment"] = -0.8
+        llm_output_high_conf = self.base_llm_output.copy()
+        llm_output_high_conf["prob_bull"] = 0.3
+        llm_output_high_conf["prob_bear"] = 0.7
+        llm_output_high_conf["confidence_level"] = "high"
+        llm_output_high_conf["scores"] = llm_output_high_conf["scores"].copy()
 
-        _, _, k_short_neutral = compute_position_multipliers(
-            llm_output_neutral,
+        _, _, k_short_low = compute_position_multipliers(
+            llm_output_low_conf,
             side="short",
             base_long_size=0.01,
             base_short_size=0.01,
         )
 
-        _, _, k_short_negative = compute_position_multipliers(
-            llm_output_negative,
+        _, _, k_short_high = compute_position_multipliers(
+            llm_output_high_conf,
             side="short",
             base_long_size=0.01,
             base_short_size=0.01,
         )
 
-        # Negative sentiment should increase short multiplier
-        self.assertGreater(k_short_negative, k_short_neutral)
+        # High confidence should increase short multiplier
+        self.assertGreater(k_short_high, k_short_low)
 
     def test_high_risk_throttles_positions(self) -> None:
         """Test that high risk reduces both multipliers."""
@@ -358,33 +375,37 @@ class TestPositionMultipliers(unittest.TestCase):
         self.assertGreater(k_long_strong, k_long_weak)
 
     def test_onchain_pressure_affects_multipliers(self) -> None:
-        """Test that on-chain pressure affects multipliers appropriately."""
-        llm_output_positive = self.base_llm_output.copy()
-        llm_output_positive["scores"] = llm_output_positive["scores"].copy()
-        llm_output_positive["scores"]["onchain_pressure"] = 0.5
+        """Test that trend strength (which replaced on-chain pressure) affects multipliers."""
+        # Note: In new implementation, onchain_pressure is not directly used
+        # Instead, trend_strength is the main factor
+        llm_output_weak_trend = self.base_llm_output.copy()
+        llm_output_weak_trend["prob_bull"] = 0.7
+        llm_output_weak_trend["prob_bear"] = 0.3
+        llm_output_weak_trend["scores"] = llm_output_weak_trend["scores"].copy()
+        llm_output_weak_trend["scores"]["trend_strength"] = 0.1
 
-        llm_output_negative = self.base_llm_output.copy()
-        llm_output_negative["scores"] = llm_output_negative["scores"].copy()
-        llm_output_negative["scores"]["onchain_pressure"] = -0.5
+        llm_output_strong_trend = self.base_llm_output.copy()
+        llm_output_strong_trend["prob_bull"] = 0.7
+        llm_output_strong_trend["prob_bear"] = 0.3
+        llm_output_strong_trend["scores"] = llm_output_strong_trend["scores"].copy()
+        llm_output_strong_trend["scores"]["trend_strength"] = 0.9
 
-        _, k_long_pos, k_short_pos = compute_position_multipliers(
-            llm_output_positive,
+        _, k_long_weak, k_short_weak = compute_position_multipliers(
+            llm_output_weak_trend,
             side="long",
             base_long_size=0.01,
             base_short_size=0.01,
         )
 
-        _, k_long_neg, k_short_neg = compute_position_multipliers(
-            llm_output_negative,
+        _, k_long_strong, k_short_strong = compute_position_multipliers(
+            llm_output_strong_trend,
             side="long",
             base_long_size=0.01,
             base_short_size=0.01,
         )
 
-        # Positive on-chain pressure should boost longs more than negative
-        self.assertGreater(k_long_pos, k_long_neg)
-        # Negative on-chain pressure should boost shorts more than positive
-        self.assertGreater(k_short_neg, k_short_pos)
+        # Strong trend should boost long multiplier more (in bullish regime)
+        self.assertGreater(k_long_strong, k_long_weak)
 
 
 if __name__ == "__main__":
