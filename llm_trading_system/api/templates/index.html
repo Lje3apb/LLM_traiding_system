@@ -15,6 +15,7 @@
         <h3>{{ name }}</h3>
         <div class="strategy-actions">
             <a href="/ui/strategies/{{ name }}/edit" class="btn btn-secondary">Edit</a>
+            <a href="/ui/strategies/{{ name }}/backtest" class="btn btn-success">Run Backtest</a>
             <form method="POST" action="/ui/strategies/{{ name }}/delete" style="display: inline;">
                 <button type="submit" class="btn btn-danger" onclick="return confirm('Delete strategy {{ name }}?')">Delete</button>
             </form>
