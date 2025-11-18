@@ -72,14 +72,32 @@ class Backtester:
 
 
 def compute_max_drawdown(curve: list[tuple[datetime, float]]) -> float:
-    peak = float("-inf")
+    """Compute maximum drawdown from equity curve.
+
+    Returns:
+        Maximum drawdown as a positive percentage (0.0 to 1.0)
+    """
+    if not curve:
+        return 0.0
+
+    # Start with first equity value as peak
+    peak = curve[0][1]
     max_dd = 0.0
+
     for _, equity in curve:
+        # If bankrupt (equity <= 0), return 100% drawdown
+        if equity <= 0:
+            return 1.0
+
+        # Update peak
         if equity > peak:
             peak = equity
-        drawdown = (equity - peak) / peak if peak > 0 else 0.0
+
+        # Calculate drawdown (peak should always be > 0 at this point)
+        drawdown = (equity - peak) / peak
         if drawdown < max_dd:
             max_dd = drawdown
+
     return abs(max_dd)
 
 

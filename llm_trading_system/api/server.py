@@ -32,6 +32,51 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 _backtest_cache: dict[str, dict[str, Any]] = {}
 
 
+def _validate_data_path(path_str: str) -> Path:
+    """Validate and resolve data path to prevent path traversal attacks.
+
+    Args:
+        path_str: User-provided path string
+
+    Returns:
+        Resolved absolute Path object
+
+    Raises:
+        ValueError: If path contains traversal attempts or is outside allowed directory
+    """
+    # Define allowed base directories
+    project_root = Path(__file__).resolve().parent.parent.parent
+    allowed_dirs = [
+        project_root / "data",
+        project_root / "temp",
+        Path.cwd() / "data",
+    ]
+
+    # Resolve the path
+    try:
+        user_path = Path(path_str).resolve()
+    except (ValueError, OSError) as e:
+        raise ValueError(f"Invalid path: {e}")
+
+    # Check if path is within any allowed directory
+    for allowed_dir in allowed_dirs:
+        try:
+            allowed_dir_resolved = allowed_dir.resolve()
+            # Check if user_path is relative to allowed_dir
+            user_path.relative_to(allowed_dir_resolved)
+            # Path is safe, return it
+            return user_path
+        except (ValueError, OSError):
+            # Not relative to this allowed_dir, try next
+            continue
+
+    # If we get here, path is not in any allowed directory
+    raise ValueError(
+        f"Path '{path_str}' is outside allowed directories. "
+        f"Data files must be in 'data/' or 'temp/' directories."
+    )
+
+
 @app.get("/health")
 async def health_check() -> dict[str, str]:
     """Health check endpoint.
@@ -185,13 +230,20 @@ async def run_backtest(request: dict[str, Any]) -> dict[str, Any]:
 
     # Extract parameters with defaults
     config = request["config"]
-    data_path = request["data_path"]
+    data_path_str = request["data_path"]
     use_llm = request.get("use_llm", False)
     llm_model = request.get("llm_model")
     llm_url = request.get("llm_url")
     initial_equity = request.get("initial_equity", 10_000.0)
     fee_rate = request.get("fee_rate", 0.001)
     slippage_bps = request.get("slippage_bps", 1.0)
+
+    # Validate data_path to prevent path traversal
+    try:
+        validated_path = _validate_data_path(data_path_str)
+        data_path = str(validated_path)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid data_path: {e}")
 
     try:
         # Run backtest using service layer
@@ -614,6 +666,11 @@ async def ui_get_backtest_chart_data(name: str) -> JSONResponse:
 
         result = backtester.run()
 
+        # Detect bar interval from OHLCV data
+        interval_seconds = 3600  # default 1 hour
+        if len(ohlcv_data) >= 2:
+            interval_seconds = ohlcv_data[1]["time"] - ohlcv_data[0]["time"]
+
         # Format trades for chart
         for trade in result.trades:
             # Parse timestamps
@@ -624,14 +681,11 @@ async def ui_get_backtest_chart_data(name: str) -> JSONResponse:
             entry_unix = int(entry_ts.timestamp()) if entry_ts else 0
             exit_unix = int(exit_ts.timestamp()) if exit_ts else 0
 
-            # Calculate bars held
+            # Calculate bars held using detected interval
             bars_held = 0
-            if entry_unix and exit_unix:
-                # Estimate bars based on time difference
-                # (this is approximate - actual bar count would require matching to OHLCV data)
+            if entry_unix and exit_unix and interval_seconds > 0:
                 time_diff = exit_unix - entry_unix
-                # Assume average bar is 1 hour for estimation
-                bars_held = max(1, time_diff // 3600)
+                bars_held = max(1, time_diff // interval_seconds)
 
             trades_data.append({
                 "side": trade.side,

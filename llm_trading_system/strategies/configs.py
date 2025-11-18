@@ -56,6 +56,7 @@ class IndicatorStrategyConfig:
     pyramiding: int = 1  # Maximum number of pyramid entries
     use_martingale: bool = False  # Enable martingale scaling
     martingale_mult: float = 1.0  # Martingale multiplier (1.0 = no martingale)
+    max_martingale_step: int = 10  # Maximum martingale step to prevent blowup
 
     # Take Profit / Stop Loss parameters (percentage-based)
     tp_long_pct: float = 2.0  # Take profit for long positions (%)
@@ -78,6 +79,79 @@ class IndicatorStrategyConfig:
     llm_min_prob_edge: float = 0.05  # Minimal |prob_bull - prob_bear| for gating
     llm_min_trend_strength: float = 0.2  # Minimal trend_strength for multipliers
     llm_refresh_interval_bars: int = 30  # How often to refresh LLM regime in HYBRID
+
+    def __post_init__(self) -> None:
+        """Validate configuration parameters."""
+        # Validate pyramiding
+        if self.pyramiding < 1:
+            raise ValueError(f"pyramiding must be >= 1, got {self.pyramiding}")
+
+        # Validate martingale parameters
+        if self.use_martingale and self.martingale_mult < 1.0:
+            raise ValueError(
+                f"martingale_mult must be >= 1.0, got {self.martingale_mult}"
+            )
+        if self.max_martingale_step < 0:
+            raise ValueError(
+                f"max_martingale_step must be >= 0, got {self.max_martingale_step}"
+            )
+
+        # Validate base size
+        if self.base_size <= 0 or self.base_size > 1.0:
+            raise ValueError(f"base_size must be in (0, 1], got {self.base_size}")
+        if self.base_position_pct is not None:
+            if self.base_position_pct <= 0 or self.base_position_pct > 100:
+                raise ValueError(
+                    f"base_position_pct must be in (0, 100], got {self.base_position_pct}"
+                )
+
+        # Validate TP/SL percentages
+        if self.use_tp_sl:
+            if self.tp_long_pct <= 0:
+                raise ValueError(f"tp_long_pct must be > 0, got {self.tp_long_pct}")
+            if self.sl_long_pct <= 0:
+                raise ValueError(f"sl_long_pct must be > 0, got {self.sl_long_pct}")
+            if self.tp_short_pct <= 0:
+                raise ValueError(f"tp_short_pct must be > 0, got {self.tp_short_pct}")
+            if self.sl_short_pct <= 0:
+                raise ValueError(f"sl_short_pct must be > 0, got {self.sl_short_pct}")
+
+        # Validate time filter
+        if self.time_filter_enabled:
+            if not (0 <= self.time_filter_start_hour <= 23):
+                raise ValueError(
+                    f"time_filter_start_hour must be in [0, 23], got {self.time_filter_start_hour}"
+                )
+            if not (0 <= self.time_filter_end_hour <= 23):
+                raise ValueError(
+                    f"time_filter_end_hour must be in [0, 23], got {self.time_filter_end_hour}"
+                )
+
+        # Validate RSI thresholds
+        if not (0 <= self.rsi_ovs <= 100):
+            raise ValueError(f"rsi_ovs must be in [0, 100], got {self.rsi_ovs}")
+        if not (0 <= self.rsi_ovb <= 100):
+            raise ValueError(f"rsi_ovb must be in [0, 100], got {self.rsi_ovb}")
+        if self.rsi_ovs >= self.rsi_ovb:
+            raise ValueError(
+                f"rsi_ovs must be < rsi_ovb, got ovs={self.rsi_ovs}, ovb={self.rsi_ovb}"
+            )
+
+        # Validate indicator lengths
+        if self.ema_fast_len < 1:
+            raise ValueError(f"ema_fast_len must be >= 1, got {self.ema_fast_len}")
+        if self.ema_slow_len < 1:
+            raise ValueError(f"ema_slow_len must be >= 1, got {self.ema_slow_len}")
+        if self.rsi_len < 1:
+            raise ValueError(f"rsi_len must be >= 1, got {self.rsi_len}")
+        if self.bb_len < 1:
+            raise ValueError(f"bb_len must be >= 1, got {self.bb_len}")
+        if self.atr_len < 1:
+            raise ValueError(f"atr_len must be >= 1, got {self.atr_len}")
+        if self.vol_ma_len < 1:
+            raise ValueError(f"vol_ma_len must be >= 1, got {self.vol_ma_len}")
+        if self.adx_len < 1:
+            raise ValueError(f"adx_len must be >= 1, got {self.adx_len}")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> IndicatorStrategyConfig:
