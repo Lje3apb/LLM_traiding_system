@@ -13,6 +13,9 @@ from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketD
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from llm_trading_system.data.data_manager import get_data_manager
 from llm_trading_system.engine.backtest_service import run_backtest_from_config_dict
@@ -33,7 +36,27 @@ app = FastAPI(
     description="HTTP JSON API for backtesting and strategy management",
 )
 
+# ============================================================================
+# Rate Limiting (DoS Protection)
+# ============================================================================
+
+# Initialize rate limiter
+# Uses IP address as identifier for rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Rate limit tiers:
+# - UI GET endpoints: 100/minute (viewing pages)
+# - UI POST endpoints: 30/minute (form submissions)
+# - API GET endpoints: 100/minute (reading data)
+# - API POST/DELETE endpoints: 30/minute (modifying data)
+# - Heavy operations: 3-5/minute (backtest, download)
+# - Settings save: 10/minute (configuration changes)
+
+# ============================================================================
 # Setup templates and static files
+# ============================================================================
 BASE_DIR = Path(__file__).resolve().parent
 # Jinja2Templates enables autoescape by default for .html, .htm, .xml files
 # This prevents XSS attacks by automatically escaping user-provided content
@@ -204,7 +227,8 @@ def _sanitize_error_message(e: Exception) -> str:
 
 
 @app.get("/health")
-async def health_check() -> dict[str, str]:
+@limiter.limit("200/minute")  # Generous limit for monitoring
+async def health_check(request: Request) -> dict[str, str]:
     """Health check endpoint.
 
     Returns:
@@ -214,7 +238,8 @@ async def health_check() -> dict[str, str]:
 
 
 @app.get("/strategies")
-async def list_strategies() -> dict[str, list[str]]:
+@limiter.limit("100/minute")  # API read operations
+async def list_strategies(request: Request) -> dict[str, list[str]]:
     """List all available strategy configurations.
 
     Returns:
@@ -228,7 +253,8 @@ async def list_strategies() -> dict[str, list[str]]:
 
 
 @app.get("/strategies/{name}")
-async def get_strategy(name: str) -> dict[str, Any]:
+@limiter.limit("100/minute")  # API read operations
+async def get_strategy(request: Request, name: str) -> dict[str, Any]:
     """Load a strategy configuration by name.
 
     Args:
@@ -250,7 +276,8 @@ async def get_strategy(name: str) -> dict[str, Any]:
 
 
 @app.post("/strategies/{name}")
-async def save_strategy(name: str, config: dict[str, Any]) -> dict[str, str]:
+@limiter.limit("30/minute")  # API write operations
+async def save_strategy(request: Request, name: str, config: dict[str, Any]) -> dict[str, str]:
     """Save or update a strategy configuration.
 
     Args:
@@ -282,7 +309,8 @@ async def save_strategy(name: str, config: dict[str, Any]) -> dict[str, str]:
 
 
 @app.delete("/strategies/{name}")
-async def delete_strategy(name: str) -> dict[str, str]:
+@limiter.limit("30/minute")  # API write operations
+async def delete_strategy(request: Request, name: str) -> dict[str, str]:
     """Delete a strategy configuration.
 
     Args:
@@ -304,7 +332,8 @@ async def delete_strategy(name: str) -> dict[str, str]:
 
 
 @app.post("/backtest")
-async def run_backtest(request: dict[str, Any]) -> dict[str, Any]:
+@limiter.limit("5/minute")  # Heavy operation - strict limit
+async def run_backtest(request_obj: Request, request: dict[str, Any]) -> dict[str, Any]:
     """Run a backtest for a given configuration and data.
 
     Request body should contain:
@@ -378,7 +407,8 @@ async def run_backtest(request: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/api/live/sessions")
-async def create_live_session(request: dict[str, Any]) -> dict[str, Any]:
+@limiter.limit("20/minute")  # Live trading session creation
+async def create_live_session(request_obj: Request, request: dict[str, Any]) -> dict[str, Any]:
     """Create a new live/paper trading session.
 
     Request body should contain:
@@ -444,7 +474,8 @@ async def create_live_session(request: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/api/live/sessions/{session_id}/start")
-async def start_live_session(session_id: str) -> dict[str, Any]:
+@limiter.limit("50/minute")  # Session control
+async def start_live_session(request: Request, session_id: str) -> dict[str, Any]:
     """Start a live/paper trading session.
 
     Args:
@@ -471,7 +502,8 @@ async def start_live_session(session_id: str) -> dict[str, Any]:
 
 
 @app.post("/api/live/sessions/{session_id}/stop")
-async def stop_live_session(session_id: str) -> dict[str, Any]:
+@limiter.limit("50/minute")  # Session control
+async def stop_live_session(request: Request, session_id: str) -> dict[str, Any]:
     """Stop a live/paper trading session.
 
     Args:
@@ -496,7 +528,8 @@ async def stop_live_session(session_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/live/sessions/{session_id}")
-async def get_live_session_status(session_id: str) -> dict[str, Any]:
+@limiter.limit("100/minute")  # API read operations
+async def get_live_session_status(request: Request, session_id: str) -> dict[str, Any]:
     """Get status and current state of a live/paper trading session.
 
     Args:
@@ -520,7 +553,8 @@ async def get_live_session_status(session_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/live/sessions")
-async def list_live_sessions() -> dict[str, list[dict[str, Any]]]:
+@limiter.limit("100/minute")  # API read operations
+async def list_live_sessions(request: Request) -> dict[str, list[dict[str, Any]]]:
     """List all live/paper trading sessions.
 
     Returns:
@@ -537,7 +571,8 @@ async def list_live_sessions() -> dict[str, list[dict[str, Any]]]:
 
 
 @app.get("/api/live/sessions/{session_id}/trades")
-async def get_live_session_trades(session_id: str, limit: int = 100) -> dict[str, Any]:
+@limiter.limit("100/minute")  # API read operations
+async def get_live_session_trades(request: Request, session_id: str, limit: int = 100) -> dict[str, Any]:
     """Get trades from a live/paper trading session.
 
     Args:
@@ -563,7 +598,8 @@ async def get_live_session_trades(session_id: str, limit: int = 100) -> dict[str
 
 
 @app.get("/api/live/sessions/{session_id}/bars")
-async def get_live_session_bars(session_id: str, limit: int = 500) -> dict[str, Any]:
+@limiter.limit("100/minute")  # API read operations
+async def get_live_session_bars(request: Request, session_id: str, limit: int = 500) -> dict[str, Any]:
     """Get recent bars from a live/paper trading session.
 
     Args:
@@ -589,7 +625,8 @@ async def get_live_session_bars(session_id: str, limit: int = 500) -> dict[str, 
 
 
 @app.get("/api/live/sessions/{session_id}/account")
-async def get_live_session_account(session_id: str) -> dict[str, Any]:
+@limiter.limit("100/minute")  # API read operations
+async def get_live_session_account(request: Request, session_id: str) -> dict[str, Any]:
     """Get account snapshot from a live/paper trading session.
 
     This returns the current account state including:
@@ -737,7 +774,8 @@ async def live_session_websocket(websocket: WebSocket, session_id: str) -> None:
 
 
 @app.get("/", response_class=RedirectResponse)
-async def root() -> RedirectResponse:
+@limiter.limit("100/minute")  # UI page views
+async def root(request: Request) -> RedirectResponse:
     """Redirect root to Web UI.
 
     Returns:
@@ -747,6 +785,7 @@ async def root() -> RedirectResponse:
 
 
 @app.get("/ui/", response_class=HTMLResponse)
+@limiter.limit("100/minute")  # UI page views
 async def ui_index(request: Request) -> HTMLResponse:
     """Web UI: List all strategy configurations.
 
@@ -811,6 +850,7 @@ async def ui_index(request: Request) -> HTMLResponse:
 
 
 @app.get("/ui/live", response_class=HTMLResponse)
+@limiter.limit("100/minute")  # UI page views
 async def ui_live_trading(request: Request) -> HTMLResponse:
     """Web UI: Live trading page for paper and real trading.
 
@@ -855,6 +895,7 @@ async def ui_live_trading(request: Request) -> HTMLResponse:
 
 
 @app.get("/ui/strategies/new", response_class=HTMLResponse)
+@limiter.limit("100/minute")  # UI page views
 async def ui_new_strategy(request: Request) -> HTMLResponse:
     """Web UI: Show form to create a new strategy.
 
@@ -870,6 +911,7 @@ async def ui_new_strategy(request: Request) -> HTMLResponse:
 
 
 @app.get("/ui/strategies/{name}/edit", response_class=HTMLResponse)
+@limiter.limit("100/minute")  # UI page views
 async def ui_edit_strategy(request: Request, name: str) -> HTMLResponse:
     """Web UI: Show form to edit an existing strategy.
 
@@ -895,6 +937,7 @@ async def ui_edit_strategy(request: Request, name: str) -> HTMLResponse:
 
 
 @app.post("/ui/strategies/{name}/save")
+@limiter.limit("30/minute")  # UI form submissions
 async def ui_save_strategy(
     request: Request,
     name: str,
@@ -1022,6 +1065,7 @@ async def ui_save_strategy(
 
 
 @app.post("/ui/strategies/{name}/delete")
+@limiter.limit("30/minute")  # UI form submissions
 async def ui_delete_strategy(
     request: Request,
     name: str,
@@ -1053,6 +1097,7 @@ async def ui_delete_strategy(
 
 
 @app.get("/ui/strategies/{name}/backtest", response_class=HTMLResponse)
+@limiter.limit("100/minute")  # UI page views
 async def ui_backtest_form(request: Request, name: str) -> HTMLResponse:
     """Web UI: Show backtest form for a strategy.
 
@@ -1097,6 +1142,7 @@ async def ui_backtest_form(request: Request, name: str) -> HTMLResponse:
 
 
 @app.post("/ui/strategies/{name}/backtest", response_class=HTMLResponse)
+@limiter.limit("5/minute")  # Heavy operation - strict limit
 async def ui_run_backtest(
     request: Request,
     name: str,
@@ -1196,7 +1242,8 @@ async def ui_run_backtest(
 
 
 @app.get("/ui/backtest/{name}/chart-data")
-async def ui_get_backtest_chart_data(name: str) -> JSONResponse:
+@limiter.limit("60/minute")  # Chart data requests
+async def ui_get_backtest_chart_data(request: Request, name: str) -> JSONResponse:
     """Web UI: Get chart data for backtest visualization.
 
     Args:
@@ -1323,6 +1370,7 @@ async def ui_get_backtest_chart_data(name: str) -> JSONResponse:
 
 
 @app.post("/ui/strategies/{name}/download_data")
+@limiter.limit("3/minute")  # Very heavy operation - very strict limit
 async def ui_download_data(
     request: Request,
     name: str,
@@ -1475,6 +1523,7 @@ async def ui_download_data(
 
 
 @app.get("/ui/settings", response_class=HTMLResponse)
+@limiter.limit("100/minute")  # UI page views
 async def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
     """Web UI: System settings page for AppConfig management.
 
@@ -1513,6 +1562,7 @@ async def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
 
 
 @app.post("/ui/settings")
+@limiter.limit("10/minute")  # Settings save - moderate limit
 async def save_settings(
     request: Request,
     csrf_token: str = Form(...),  # CSRF protection
@@ -1689,7 +1739,8 @@ async def save_settings(
 
 
 @app.get("/ui/data/files")
-async def ui_list_data_files() -> JSONResponse:
+@limiter.limit("100/minute")  # File listing
+async def ui_list_data_files(request: Request) -> JSONResponse:
     """Web UI: List available CSV data files.
 
     Returns:
