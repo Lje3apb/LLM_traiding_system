@@ -1,10 +1,13 @@
 """Retry policies with exponential backoff for LLM API calls."""
 
+import logging
 import time
 import asyncio
-from typing import TypeVar, Callable, Any
+from typing import TypeVar, Callable, Any, Optional
 from functools import wraps
+import requests
 
+logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
@@ -43,21 +46,48 @@ class RetryPolicy:
 
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> T:
-            last_exception = None
+            last_exception: Optional[Exception] = None
+
             for attempt in range(self.max_retries + 1):
                 try:
+                    if attempt > 0:
+                        logger.debug("Retry attempt %d/%d for %s", attempt, self.max_retries, func.__name__)
                     return func(*args, **kwargs)
-                except Exception as e:
+
+                except (
+                    requests.RequestException,  # Network errors (timeout, connection, HTTP)
+                    TimeoutError,               # Timeout errors
+                    ConnectionError,            # Connection errors
+                    OSError,                    # Network-related OS errors
+                ) as e:
                     last_exception = e
                     if attempt < self.max_retries:
                         delay = min(
                             self.base_delay * (self.exponential_base**attempt),
                             self.max_delay,
                         )
+                        logger.warning(
+                            "Attempt %d failed with %s: %s. Retrying in %.1fs...",
+                            attempt + 1,
+                            type(e).__name__,
+                            str(e),
+                            delay
+                        )
                         time.sleep(delay)
                     else:
-                        break
-            raise last_exception  # type: ignore
+                        logger.error("All %d retry attempts failed for %s", self.max_retries + 1, func.__name__)
+
+                except Exception as e:
+                    # Don't retry on programming errors - fail fast
+                    logger.error("Non-retryable error in %s: %s: %s", func.__name__, type(e).__name__, str(e))
+                    raise
+
+            # If we get here, all retries were exhausted
+            if last_exception:
+                raise last_exception
+
+            # This should never happen
+            raise RuntimeError("Retry loop exhausted without exception or return")
 
         return wrapper
 
@@ -97,20 +127,47 @@ class AsyncRetryPolicy:
 
         @wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> T:
-            last_exception = None
+            last_exception: Optional[Exception] = None
+
             for attempt in range(self.max_retries + 1):
                 try:
+                    if attempt > 0:
+                        logger.debug("Async retry attempt %d/%d for %s", attempt, self.max_retries, func.__name__)
                     return await func(*args, **kwargs)
-                except Exception as e:
+
+                except (
+                    requests.RequestException,  # Network errors (timeout, connection, HTTP)
+                    TimeoutError,               # Timeout errors
+                    ConnectionError,            # Connection errors
+                    OSError,                    # Network-related OS errors
+                ) as e:
                     last_exception = e
                     if attempt < self.max_retries:
                         delay = min(
                             self.base_delay * (self.exponential_base**attempt),
                             self.max_delay,
                         )
+                        logger.warning(
+                            "Async attempt %d failed with %s: %s. Retrying in %.1fs...",
+                            attempt + 1,
+                            type(e).__name__,
+                            str(e),
+                            delay
+                        )
                         await asyncio.sleep(delay)
                     else:
-                        break
-            raise last_exception  # type: ignore
+                        logger.error("All %d async retry attempts failed for %s", self.max_retries + 1, func.__name__)
+
+                except Exception as e:
+                    # Don't retry on programming errors - fail fast
+                    logger.error("Non-retryable async error in %s: %s: %s", func.__name__, type(e).__name__, str(e))
+                    raise
+
+            # If we get here, all retries were exhausted
+            if last_exception:
+                raise last_exception
+
+            # This should never happen
+            raise RuntimeError("Async retry loop exhausted without exception or return")
 
         return wrapper

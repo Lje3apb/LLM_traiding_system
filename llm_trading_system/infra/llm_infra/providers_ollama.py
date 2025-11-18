@@ -42,10 +42,26 @@ class OllamaProvider:
 
         Returns:
             Generated text completion.
+
+        Raises:
+            ValueError: If response format is invalid.
+            requests.RequestException: If request fails.
         """
         prompt = f"{system_prompt}\n\n{user_prompt}"
         response = self._make_request(prompt, temperature)
-        return response["response"]
+
+        # Validate response structure
+        if not isinstance(response, dict):
+            raise ValueError(f"Expected dict response from Ollama, got {type(response)}")
+
+        if "response" not in response:
+            raise ValueError("Missing 'response' key in Ollama response")
+
+        content = response["response"]
+        if not isinstance(content, str):
+            raise ValueError(f"Expected string response, got {type(content)}")
+
+        return content
 
     def complete_batch(
         self,
@@ -79,7 +95,10 @@ class OllamaProvider:
             API response dictionary.
 
         Raises:
-            requests.HTTPError: If request fails.
+            requests.Timeout: If request exceeds timeout.
+            requests.ConnectionError: If connection fails.
+            requests.HTTPError: If HTTP status is 4xx or 5xx.
+            ValueError: If response is not valid JSON.
         """
         payload = {
             "model": self.model,
@@ -88,13 +107,28 @@ class OllamaProvider:
             "stream": False,
         }
 
-        response = requests.post(
-            f"{self.base_url}/api/generate",
-            json=payload,
-            timeout=self.timeout,
-        )
-        response.raise_for_status()
-        return response.json()
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/generate",
+                json=payload,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except requests.exceptions.Timeout as exc:
+            logger.error("Timeout calling Ollama API at %s", self.base_url, exc_info=True)
+            raise
+        except requests.exceptions.ConnectionError as exc:
+            logger.error("Connection error calling Ollama API at %s", self.base_url, exc_info=True)
+            raise
+        except requests.exceptions.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response else 'unknown'
+            logger.error("HTTP %s from Ollama API at %s", status_code, self.base_url, exc_info=True)
+            raise
+        except ValueError as exc:
+            logger.error("Invalid JSON response from Ollama API at %s", self.base_url, exc_info=True)
+            raise
 
 
 def list_ollama_models(base_url: str) -> list[str]:

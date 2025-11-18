@@ -12,7 +12,9 @@ let currentMode = 'paper';
 let ws = null;
 let wsReconnectAttempts = 0;
 let wsReconnectTimer = null;
+let wsHeartbeatInterval = null;  // Global reference to heartbeat interval
 let chartInstance = null;
+let chartResizeHandler = null;  // Global reference to resize handler
 let candlestickSeries = null;
 let volumeSeries = null;
 let rsiSeries = null;
@@ -115,6 +117,33 @@ function updateModeBadge() {
     accountBadge.className = `mode-badge ${currentMode}`;
 }
 
+/**
+ * Fetch with timeout to prevent hanging requests
+ * @param {string} url - The URL to fetch
+ * @param {object} options - Fetch options
+ * @param {number} timeout - Timeout in milliseconds (default 10000ms)
+ * @returns {Promise<Response>}
+ */
+async function fetchWithTimeout(url, options = {}, timeout = 10000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        return response;
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            throw new Error(`Request timeout after ${timeout}ms`);
+        }
+        throw error;
+    }
+}
+
 async function fetchLiveBalance() {
     const depositInput = document.getElementById('initial-deposit');
     depositInput.value = '';
@@ -123,27 +152,50 @@ async function fetchLiveBalance() {
     try {
         // Try to get balance from current session if exists
         if (currentSessionId) {
-            const response = await fetch(`/api/live/sessions/${currentSessionId}/account`);
+            const response = await fetchWithTimeout(
+                `/api/live/sessions/${currentSessionId}/account`,
+                {},
+                5000
+            );
+
             if (response.ok) {
                 const data = await response.json();
-                depositInput.value = data.balance.toFixed(2);
+
+                // Validate response structure
+                if (!data || typeof data.balance !== 'number') {
+                    throw new Error('Invalid response format: balance missing or not a number');
+                }
+
+                if (data.balance < 0) {
+                    throw new Error('Invalid balance: cannot be negative');
+                }
+
+                depositInput.value = parseFloat(data.balance).toFixed(2);
                 depositInput.placeholder = '';
                 return;
             }
         }
 
         // Otherwise try to fetch from exchange directly
-        // Note: This endpoint may not exist yet, handle gracefully
-        const response = await fetch('/api/exchange/account');
-        if (response.ok) {
-            const data = await response.json();
-            depositInput.value = data.balance.toFixed(2);
-        } else {
-            depositInput.value = '0';
-            depositInput.placeholder = 'Unable to fetch balance';
+        const response = await fetchWithTimeout('/api/exchange/account', {}, 5000);
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
+
+        const data = await response.json();
+
+        // Validate response
+        if (!data || typeof data.balance !== 'number' || data.balance < 0) {
+            throw new Error('Invalid balance data from exchange');
+        }
+
+        depositInput.value = parseFloat(data.balance).toFixed(2);
+        depositInput.placeholder = '';
+
     } catch (error) {
         console.error('Failed to fetch live balance:', error);
+        showError(`Unable to fetch balance: ${error.message}`);
         depositInput.value = '0';
         depositInput.placeholder = 'Error fetching balance';
     }
@@ -171,9 +223,21 @@ async function createSession() {
         return;
     }
 
-    const depositValue = parseFloat(depositInput.value);
-    if (!depositValue || depositValue < 10) {
+    // Validate deposit input
+    const depositStr = depositInput.value?.trim();
+    if (!depositStr) {
+        showError('Initial deposit is required');
+        return;
+    }
+
+    const depositValue = parseFloat(depositStr);
+    if (isNaN(depositValue) || depositValue < 10) {
         showError('Initial deposit must be at least $10');
+        return;
+    }
+
+    if (depositValue > 1000000) {
+        showError('Initial deposit cannot exceed $1,000,000');
         return;
     }
 
@@ -206,11 +270,11 @@ async function createSession() {
 
     setLoading(true);
     try {
-        const response = await fetch('/api/live/sessions', {
+        const response = await fetchWithTimeout('/api/live/sessions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(config)
-        });
+        }, 15000);  // 15 second timeout for session creation
 
         if (!response.ok) {
             const error = await response.json();
@@ -257,9 +321,9 @@ async function startSession() {
 
     setLoading(true);
     try {
-        const response = await fetch(`/api/live/sessions/${currentSessionId}/start`, {
+        const response = await fetchWithTimeout(`/api/live/sessions/${currentSessionId}/start`, {
             method: 'POST'
-        });
+        }, 10000);  // 10 second timeout
 
         if (!response.ok) {
             const error = await response.json();
@@ -306,9 +370,9 @@ async function stopSession() {
 
     setLoading(true);
     try {
-        const response = await fetch(`/api/live/sessions/${currentSessionId}/stop`, {
+        const response = await fetchWithTimeout(`/api/live/sessions/${currentSessionId}/stop`, {
             method: 'POST'
-        });
+        }, 10000);  // 10 second timeout
 
         if (!response.ok) {
             const error = await response.json();
@@ -387,11 +451,10 @@ function connectWebSocket() {
     };
 
     // Send ping every 30 seconds to keep connection alive
-    const pingInterval = setInterval(() => {
+    // Store interval globally to prevent memory leaks on reconnection
+    wsHeartbeatInterval = setInterval(() => {
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'ping' }));
-        } else {
-            clearInterval(pingInterval);
         }
     }, 30000);
 }
@@ -400,6 +463,12 @@ function disconnectWebSocket() {
     if (wsReconnectTimer) {
         clearTimeout(wsReconnectTimer);
         wsReconnectTimer = null;
+    }
+
+    // Clear heartbeat interval to prevent memory leak
+    if (wsHeartbeatInterval) {
+        clearInterval(wsHeartbeatInterval);
+        wsHeartbeatInterval = null;
     }
 
     if (ws) {
@@ -444,13 +513,21 @@ function updateSessionDisplay(sessionData) {
             `Session: ${sessionData.session_id.substring(0, 8)}...`;
     }
 
-    // Update status badge
+    // Update status badge - use safe DOM methods to prevent XSS
     const statusBadge = document.getElementById('session-status-badge');
     const statusText = sessionData.status || 'created';
-    statusBadge.innerHTML = `
-        <span class="status-indicator"></span>
-        <span>${statusText.charAt(0).toUpperCase() + statusText.slice(1)}</span>
-    `;
+
+    // Clear and rebuild safely
+    statusBadge.innerHTML = '';
+
+    const indicator = document.createElement('span');
+    indicator.className = 'status-indicator';
+    statusBadge.appendChild(indicator);
+
+    const textSpan = document.createElement('span');
+    textSpan.textContent = statusText.charAt(0).toUpperCase() + statusText.slice(1);
+    statusBadge.appendChild(textSpan);
+
     statusBadge.className = `status-badge ${statusText}`;
 
     // Update account metrics if last_state is available
@@ -536,23 +613,57 @@ function updateTradesTable(trades) {
         return;
     }
 
-    tbody.innerHTML = trades.map((trade, idx) => {
+    // Clear table and rebuild safely to prevent XSS
+    tbody.innerHTML = '';
+
+    trades.forEach((trade, idx) => {
         const pnl = trade.pnl || 0;
         const pnlClass = pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
         const rowClass = pnl >= 0 ? 'profit' : 'loss';
-        const sideClass = trade.side.toLowerCase() === 'buy' ? 'long' : 'short';
 
-        return `
-            <tr class="${rowClass}">
-                <td>${idx + 1}</td>
-                <td>${formatDateTime(trade.timestamp)}</td>
-                <td class="trade-type-${sideClass}">${trade.side.toUpperCase()}</td>
-                <td>${trade.quantity.toFixed(4)}</td>
-                <td>$${trade.price.toFixed(2)}</td>
-                <td class="${pnlClass}">${formatPnL(pnl)}</td>
-            </tr>
-        `;
-    }).join('');
+        // Validate trade.side to prevent class injection
+        const validSides = ['buy', 'sell', 'long', 'short'];
+        const sideLower = (trade.side || '').toLowerCase();
+        const sideClass = validSides.includes(sideLower) ?
+            (sideLower === 'buy' ? 'long' : 'short') : 'unknown';
+
+        const tr = document.createElement('tr');
+        tr.className = rowClass;
+
+        // Index
+        const tdIdx = document.createElement('td');
+        tdIdx.textContent = idx + 1;
+        tr.appendChild(tdIdx);
+
+        // Timestamp
+        const tdTime = document.createElement('td');
+        tdTime.textContent = formatDateTime(trade.timestamp);
+        tr.appendChild(tdTime);
+
+        // Side
+        const tdSide = document.createElement('td');
+        tdSide.className = `trade-type-${sideClass}`;
+        tdSide.textContent = trade.side.toUpperCase();
+        tr.appendChild(tdSide);
+
+        // Quantity
+        const tdQty = document.createElement('td');
+        tdQty.textContent = trade.quantity.toFixed(4);
+        tr.appendChild(tdQty);
+
+        // Price
+        const tdPrice = document.createElement('td');
+        tdPrice.textContent = `$${trade.price.toFixed(2)}`;
+        tr.appendChild(tdPrice);
+
+        // PnL
+        const tdPnl = document.createElement('td');
+        tdPnl.className = pnlClass;
+        tdPnl.textContent = formatPnL(pnl);
+        tr.appendChild(tdPnl);
+
+        tbody.appendChild(tr);
+    });
 }
 
 function handleNewTrade(trade) {
@@ -606,14 +717,31 @@ async function fetchSessionStatus() {
     if (!currentSessionId) return;
 
     try {
-        const response = await fetch(`/api/live/sessions/${currentSessionId}`);
-        if (response.ok) {
-            const data = await response.json();
-            sessionStatus = data.status;
-            updateSessionDisplay(data);
+        const response = await fetchWithTimeout(
+            `/api/live/sessions/${currentSessionId}`,
+            {},
+            5000  // 5 second timeout
+        );
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch session: ${response.status}`);
         }
+
+        const data = await response.json();
+
+        if (!data || !data.status) {
+            throw new Error('Invalid session data');
+        }
+
+        sessionStatus = data.status;
+        updateSessionDisplay(data);
+
     } catch (error) {
         console.error('Failed to fetch session status:', error);
+        // Optional: Show warning if this is a persistent issue
+        if (sessionStatus === 'running') {
+            console.warn('Session status update failed - data may be stale');
+        }
     }
 }
 
@@ -672,21 +800,32 @@ function initializeChart() {
         },
     });
 
-    // Auto-resize
-    window.addEventListener('resize', () => {
+    // Auto-resize - remove old listener first to prevent memory leak
+    if (chartResizeHandler) {
+        window.removeEventListener('resize', chartResizeHandler);
+    }
+
+    chartResizeHandler = () => {
         if (chartInstance) {
             chartInstance.applyOptions({
                 width: container.clientWidth
             });
         }
-    });
+    };
+
+    window.addEventListener('resize', chartResizeHandler);
 }
 
 async function loadInitialBars() {
     if (!currentSessionId || !candlestickSeries) return;
 
     try {
-        const response = await fetch(`/api/live/sessions/${currentSessionId}/bars?limit=500`);
+        const response = await fetchWithTimeout(
+            `/api/live/sessions/${currentSessionId}/bars?limit=500`,
+            {},
+            10000  // 10 second timeout for large dataset
+        );
+
         if (response.ok) {
             const data = await response.json();
             if (data.bars && data.bars.length > 0) {
@@ -721,7 +860,12 @@ async function loadInitialTrades() {
     if (!currentSessionId) return;
 
     try {
-        const response = await fetch(`/api/live/sessions/${currentSessionId}/trades?limit=50`);
+        const response = await fetchWithTimeout(
+            `/api/live/sessions/${currentSessionId}/trades?limit=50`,
+            {},
+            5000  // 5 second timeout
+        );
+
         if (response.ok) {
             const data = await response.json();
             if (data.trades && data.trades.length > 0) {
@@ -772,6 +916,12 @@ function addTradeMarker(trade) {
     };
 
     tradeMarkers.push(marker);
+
+    // Limit to last 100 markers to prevent unbounded memory growth
+    if (tradeMarkers.length > 100) {
+        tradeMarkers = tradeMarkers.slice(-100);
+    }
+
     candlestickSeries.setMarkers(tradeMarkers);
 }
 
@@ -782,81 +932,129 @@ function addTradeMarker(trade) {
 function toggleRSI(event) {
     const enabled = event.target.checked;
 
-    if (enabled && !rsiSeries) {
-        // Create RSI series
-        rsiSeries = chartInstance.addLineSeries({
-            color: '#9333ea',
-            lineWidth: 2,
-            priceScaleId: 'rsi',
-            scaleMargins: {
-                top: 0.9,
-                bottom: 0,
-            },
-        });
+    if (!chartInstance) {
+        showError('Chart not initialized');
+        event.target.checked = false;
+        return;
+    }
 
-        // TODO: Fetch RSI data from backend or calculate client-side
-        console.log('RSI indicator enabled (data loading not yet implemented)');
+    if (enabled && !rsiSeries) {
+        try {
+            // Create RSI series
+            rsiSeries = chartInstance.addLineSeries({
+                color: '#9333ea',
+                lineWidth: 2,
+                priceScaleId: 'rsi',
+                scaleMargins: {
+                    top: 0.9,
+                    bottom: 0,
+                },
+            });
+
+            // TODO: Fetch RSI data from backend or calculate client-side
+            console.log('RSI indicator enabled (data loading not yet implemented)');
+        } catch (error) {
+            console.error('Failed to create RSI series:', error);
+            event.target.checked = false;
+            showError('Failed to enable RSI indicator');
+        }
     } else if (!enabled && rsiSeries) {
-        // Remove RSI series
-        chartInstance.removeSeries(rsiSeries);
-        rsiSeries = null;
-        console.log('RSI indicator disabled');
+        try {
+            // Remove RSI series
+            chartInstance.removeSeries(rsiSeries);
+            rsiSeries = null;
+            console.log('RSI indicator disabled');
+        } catch (error) {
+            console.error('Failed to remove RSI series:', error);
+        }
     }
 }
 
 function toggleBB(event) {
     const enabled = event.target.checked;
 
+    if (!chartInstance) {
+        showError('Chart not initialized');
+        event.target.checked = false;
+        return;
+    }
+
     if (enabled && !bbUpperSeries) {
-        // Create Bollinger Bands series
-        bbUpperSeries = chartInstance.addLineSeries({
-            color: '#3b82f6',
-            lineWidth: 1,
-            lineStyle: 2, // Dashed
-        });
+        try {
+            // Create Bollinger Bands series
+            bbUpperSeries = chartInstance.addLineSeries({
+                color: '#3b82f6',
+                lineWidth: 1,
+                lineStyle: 2, // Dashed
+            });
 
-        bbMiddleSeries = chartInstance.addLineSeries({
-            color: '#3b82f6',
-            lineWidth: 1,
-        });
+            bbMiddleSeries = chartInstance.addLineSeries({
+                color: '#3b82f6',
+                lineWidth: 1,
+            });
 
-        bbLowerSeries = chartInstance.addLineSeries({
-            color: '#3b82f6',
-            lineWidth: 1,
-            lineStyle: 2, // Dashed
-        });
+            bbLowerSeries = chartInstance.addLineSeries({
+                color: '#3b82f6',
+                lineWidth: 1,
+                lineStyle: 2, // Dashed
+            });
 
-        // TODO: Fetch BB data from backend or calculate client-side
-        console.log('Bollinger Bands enabled (data loading not yet implemented)');
+            // TODO: Fetch BB data from backend or calculate client-side
+            console.log('Bollinger Bands enabled (data loading not yet implemented)');
+        } catch (error) {
+            console.error('Failed to create BB series:', error);
+            event.target.checked = false;
+            showError('Failed to enable Bollinger Bands');
+        }
     } else if (!enabled && bbUpperSeries) {
-        // Remove BB series
-        chartInstance.removeSeries(bbUpperSeries);
-        chartInstance.removeSeries(bbMiddleSeries);
-        chartInstance.removeSeries(bbLowerSeries);
-        bbUpperSeries = null;
-        bbMiddleSeries = null;
-        bbLowerSeries = null;
-        console.log('Bollinger Bands disabled');
+        try {
+            // Remove BB series
+            chartInstance.removeSeries(bbUpperSeries);
+            chartInstance.removeSeries(bbMiddleSeries);
+            chartInstance.removeSeries(bbLowerSeries);
+            bbUpperSeries = null;
+            bbMiddleSeries = null;
+            bbLowerSeries = null;
+            console.log('Bollinger Bands disabled');
+        } catch (error) {
+            console.error('Failed to remove BB series:', error);
+        }
     }
 }
 
 function toggleEMA(event) {
     const enabled = event.target.checked;
 
-    if (enabled && !emaSeries) {
-        // Create EMA series
-        emaSeries = chartInstance.addLineSeries({
-            color: '#f59e0b',
-            lineWidth: 2,
-        });
+    if (!chartInstance) {
+        showError('Chart not initialized');
+        event.target.checked = false;
+        return;
+    }
 
-        // TODO: Fetch EMA data from backend or calculate client-side
-        console.log('EMA indicator enabled (data loading not yet implemented)');
+    if (enabled && !emaSeries) {
+        try {
+            // Create EMA series
+            emaSeries = chartInstance.addLineSeries({
+                color: '#f59e0b',
+                lineWidth: 2,
+            });
+
+            // TODO: Fetch EMA data from backend or calculate client-side
+            console.log('EMA indicator enabled (data loading not yet implemented)');
+        } catch (error) {
+            console.error('Failed to create EMA series:', error);
+            event.target.checked = false;
+            showError('Failed to enable EMA indicator');
+        }
     } else if (!enabled && emaSeries) {
-        // Remove EMA series
-        chartInstance.removeSeries(emaSeries);
-        emaSeries = null;
-        console.log('EMA indicator disabled');
+        try {
+            // Remove EMA series
+            chartInstance.removeSeries(emaSeries);
+            emaSeries = null;
+            console.log('EMA indicator disabled');
+        } catch (error) {
+            console.error('Failed to remove EMA series:', error);
+        }
     }
 }
 
@@ -980,13 +1178,20 @@ function addLogEntry(message, type = 'info') {
     const now = new Date();
     const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
 
+    // Create safe log entry to prevent XSS
     const entry = document.createElement('div');
     entry.className = `log-entry ${type}`;
-    entry.innerHTML = `
-        <span class="log-time">${timeStr}</span>
-        <span class="log-message">${message}</span>
-    `;
 
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'log-time';
+    timeSpan.textContent = timeStr;  // textContent escapes HTML
+
+    const msgSpan = document.createElement('span');
+    msgSpan.className = 'log-message';
+    msgSpan.textContent = message;  // textContent escapes HTML
+
+    entry.appendChild(timeSpan);
+    entry.appendChild(msgSpan);
     container.appendChild(entry);
 
     // Auto-scroll to bottom
@@ -1049,6 +1254,93 @@ function formatDateTime(timestamp) {
         second: '2-digit'
     });
 }
+
+// ============================================================================
+// Cleanup Functions
+// ============================================================================
+
+/**
+ * Clean up chart resources to prevent memory leaks
+ */
+function cleanupChart() {
+    // Remove resize listener
+    if (chartResizeHandler) {
+        window.removeEventListener('resize', chartResizeHandler);
+        chartResizeHandler = null;
+    }
+
+    // Clear all series references
+    candlestickSeries = null;
+    volumeSeries = null;
+    rsiSeries = null;
+    bbUpperSeries = null;
+    bbMiddleSeries = null;
+    bbLowerSeries = null;
+    emaSeries = null;
+    tradeMarkers = [];
+
+    // Remove chart instance (if library supports it)
+    if (chartInstance) {
+        try {
+            chartInstance.remove?.();
+        } catch (e) {
+            console.warn('Error removing chart:', e);
+        }
+        chartInstance = null;
+    }
+}
+
+/**
+ * Clean up all resources when page is unloaded
+ */
+function cleanupOnUnload() {
+    // Close WebSocket connection
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+    }
+
+    // Clear all timers
+    if (wsReconnectTimer) {
+        clearTimeout(wsReconnectTimer);
+    }
+
+    if (wsHeartbeatInterval) {
+        clearInterval(wsHeartbeatInterval);
+    }
+
+    if (durationTimer) {
+        clearInterval(durationTimer);
+    }
+
+    // Clean up chart
+    cleanupChart();
+}
+
+// Add page unload handler
+window.addEventListener('beforeunload', function(e) {
+    cleanupOnUnload();
+
+    // Warn user if session is running
+    if (sessionStatus === 'running') {
+        e.preventDefault();
+        e.returnValue = 'Trading session is still active. Are you sure you want to leave?';
+        return e.returnValue;
+    }
+});
+
+// Handle tab visibility changes
+document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+        // Page is hidden - session continues running
+        console.log('Page hidden - session continues running');
+    } else {
+        // Page is visible again - refresh data
+        console.log('Page visible - refreshing data');
+        if (currentSessionId && sessionStatus === 'running') {
+            fetchSessionStatus();
+        }
+    }
+});
 
 // ============================================================================
 // URL Parameters Prefill

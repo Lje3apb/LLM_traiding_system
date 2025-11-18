@@ -85,11 +85,15 @@ def create_llm_client(model: str, provider: str = "ollama"):
     Returns:
         LLM client instance
     """
+    from llm_trading_system.config import load_config
+
+    cfg = load_config()
+
     if provider == "ollama":
         from llm_trading_system.infra.llm_infra.providers_ollama import OllamaProvider
         from llm_trading_system.infra.llm_infra.client_sync import SyncLLMClient
 
-        base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        base_url = cfg.llm.ollama_base_url
         llm_provider = OllamaProvider(model=model, base_url=base_url)
         return SyncLLMClient(provider=llm_provider)
 
@@ -97,9 +101,12 @@ def create_llm_client(model: str, provider: str = "ollama"):
         from llm_trading_system.infra.llm_infra.providers_openai import OpenAIProvider
         from llm_trading_system.infra.llm_infra.client_sync import SyncLLMClient
 
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = cfg.llm.openai_api_key
         if not api_key:
-            raise ValueError("OPENAI_API_KEY not set in environment")
+            raise ValueError(
+                "OpenAI API key not configured. "
+                "Set it in Settings UI or OPENAI_API_KEY environment variable."
+            )
 
         llm_provider = OpenAIProvider(model=model, api_key=api_key)
         return SyncLLMClient(provider=llm_provider)
@@ -117,37 +124,37 @@ def verify_live_mode_safety() -> bool:
     Raises:
         ValueError: If configuration is unsafe
     """
+    from llm_trading_system.config import load_config
+
+    cfg = load_config()
+
     # Check EXCHANGE_TYPE
-    exchange_type = os.getenv("EXCHANGE_TYPE", "paper")
-    if exchange_type != "binance":
+    if cfg.exchange.exchange_type != "binance":
         raise ValueError(
-            f"EXCHANGE_TYPE must be 'binance' for live mode, got '{exchange_type}'"
+            f"exchange_type must be 'binance' for live mode, got '{cfg.exchange.exchange_type}'. "
+            f"Configure in Settings UI or set EXCHANGE_TYPE=binance in .env"
         )
 
     # Check EXCHANGE_LIVE_ENABLED
-    live_enabled = os.getenv("EXCHANGE_LIVE_ENABLED", "false").lower()
-    if live_enabled not in ("true", "1", "yes"):
+    if not cfg.exchange.live_trading_enabled:
         raise ValueError(
-            "EXCHANGE_LIVE_ENABLED must be set to 'true' for live trading. "
-            "Set this in .env to acknowledge you understand the risks."
+            "live_trading_enabled must be true for live trading. "
+            "Enable in Settings UI or set EXCHANGE_LIVE_ENABLED=true in .env to acknowledge risks."
         )
 
     # Check API credentials
-    api_key = os.getenv("BINANCE_API_KEY")
-    api_secret = os.getenv("BINANCE_API_SECRET")
-
-    if not api_key or not api_secret:
+    if not cfg.exchange.api_key or not cfg.exchange.api_secret:
         raise ValueError(
-            "BINANCE_API_KEY and BINANCE_API_SECRET must be set for live trading"
+            "Binance API key and secret must be configured for live trading. "
+            "Set them in Settings UI or BINANCE_API_KEY/BINANCE_API_SECRET in .env"
         )
 
     # Warn about testnet
-    testnet = os.getenv("BINANCE_TESTNET", "true").lower()
-    if testnet in ("true", "1", "yes"):
-        logger.warning("⚠️  BINANCE_TESTNET=true - Using testnet mode")
+    if cfg.exchange.use_testnet:
+        logger.warning("⚠️  use_testnet=true - Using testnet mode")
         logger.warning("⚠️  This is NOT real trading, just testing")
     else:
-        logger.warning("🚨 BINANCE_TESTNET=false - REAL MONEY MODE 🚨")
+        logger.warning("🚨 use_testnet=false - REAL MONEY MODE 🚨")
         logger.warning("🚨 This will execute REAL trades with REAL money 🚨")
 
     return True

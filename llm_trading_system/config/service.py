@@ -4,8 +4,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import Any, Dict
+
+from pydantic import ValidationError
 
 from llm_trading_system.config.models import (
     ApiConfig,
@@ -19,8 +22,45 @@ from llm_trading_system.config.models import (
 
 # Global cache for config (loaded once per process)
 _APP_CONFIG: AppConfig | None = None
+_CONFIG_LOCK = threading.Lock()
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_float(value: str, default: float, name: str) -> float:
+    """Safely parse float from string with fallback to default.
+
+    Args:
+        value: String value to parse
+        default: Default value if parsing fails
+        name: Variable name for logging
+
+    Returns:
+        Parsed float or default
+    """
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        logger.warning("Invalid %s='%s', using default %.4f", name, value, default)
+        return default
+
+
+def _safe_int(value: str, default: int, name: str) -> int:
+    """Safely parse int from string with fallback to default.
+
+    Args:
+        value: String value to parse
+        default: Default value if parsing fails
+        name: Variable name for logging
+
+    Returns:
+        Parsed int or default
+    """
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        logger.warning("Invalid %s='%s', using default %d", name, value, default)
+        return default
 
 
 def get_config_path() -> Path:
@@ -29,10 +69,10 @@ def get_config_path() -> Path:
     Returns:
         Path to ~/.llm_trading/config.json
 
-    Creates the directory if it doesn't exist.
+    Creates the directory if it doesn't exist with secure permissions (0o700).
     """
     config_dir = Path.home() / ".llm_trading"
-    config_dir.mkdir(parents=True, exist_ok=True)
+    config_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     return config_dir / "config.json"
 
 
@@ -70,14 +110,14 @@ def _load_from_env() -> AppConfig:
         ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
         openai_api_base=os.getenv("OPENAI_API_BASE"),
         openai_api_key=os.getenv("OPENAI_API_KEY"),
-        temperature=float(os.getenv("LLM_TEMPERATURE", "0.1")),
-        timeout_seconds=int(os.getenv("LLM_TIMEOUT_SECONDS", "60")),
+        temperature=_safe_float(os.getenv("LLM_TEMPERATURE", "0.1"), 0.1, "LLM_TEMPERATURE"),
+        timeout_seconds=_safe_int(os.getenv("LLM_TIMEOUT_SECONDS", "60"), 60, "LLM_TIMEOUT_SECONDS"),
     )
 
     # Market configuration
     market_config = MarketConfig(
         base_asset=os.getenv("BASE_ASSET", "BTCUSDT"),
-        horizon_hours=int(os.getenv("HORIZON_HOURS", "4")),
+        horizon_hours=_safe_int(os.getenv("HORIZON_HOURS", "4"), 4, "HORIZON_HOURS"),
         use_news=os.getenv("USE_NEWS", "true").lower() in ("true", "1", "yes"),
         use_onchain=os.getenv("USE_ONCHAIN", "true").lower() in ("true", "1", "yes"),
         use_funding=os.getenv("USE_FUNDING", "true").lower() in ("true", "1", "yes"),
@@ -85,20 +125,22 @@ def _load_from_env() -> AppConfig:
 
     # Risk configuration
     risk_config = RiskConfig(
-        base_long_size=float(os.getenv("BASE_LONG_SIZE", "0.01")),
-        base_short_size=float(os.getenv("BASE_SHORT_SIZE", "0.01")),
-        k_max=float(os.getenv("K_MAX", "2.0")),
-        edge_gain=float(os.getenv("EDGE_GAIN", "2.5")),
-        edge_gamma=float(os.getenv("EDGE_GAMMA", "0.7")),
-        base_k=float(os.getenv("BASE_K", "0.5")),
+        base_long_size=_safe_float(os.getenv("BASE_LONG_SIZE", "0.01"), 0.01, "BASE_LONG_SIZE"),
+        base_short_size=_safe_float(os.getenv("BASE_SHORT_SIZE", "0.01"), 0.01, "BASE_SHORT_SIZE"),
+        k_max=_safe_float(os.getenv("K_MAX", "2.0"), 2.0, "K_MAX"),
+        edge_gain=_safe_float(os.getenv("EDGE_GAIN", "2.5"), 2.5, "EDGE_GAIN"),
+        edge_gamma=_safe_float(os.getenv("EDGE_GAMMA", "0.7"), 0.7, "EDGE_GAMMA"),
+        base_k=_safe_float(os.getenv("BASE_K", "0.5"), 0.5, "BASE_K"),
     )
 
     # Exchange configuration
     exchange_config = ExchangeConfig(
+        exchange_type=os.getenv("EXCHANGE_TYPE", "paper"),
         exchange_name=os.getenv("EXCHANGE_NAME", "binance"),
         api_key=os.getenv("EXCHANGE_API_KEY"),
         api_secret=os.getenv("EXCHANGE_API_SECRET"),
-        use_testnet=os.getenv("EXCHANGE_USE_TESTNET", "true").lower() in ("true", "1", "yes"),
+        # Support both BINANCE_TESTNET and EXCHANGE_USE_TESTNET for backward compatibility
+        use_testnet=os.getenv("BINANCE_TESTNET", os.getenv("EXCHANGE_USE_TESTNET", "true")).lower() in ("true", "1", "yes"),
         live_trading_enabled=os.getenv("EXCHANGE_LIVE_ENABLED", "false").lower() in ("true", "1", "yes"),
         default_symbol=os.getenv("DEFAULT_SYMBOL", "BTCUSDT"),
         default_timeframe=os.getenv("DEFAULT_TIMEFRAME", "5m"),
@@ -106,10 +148,10 @@ def _load_from_env() -> AppConfig:
 
     # UI defaults configuration
     ui_config = UiDefaultsConfig(
-        default_initial_deposit=float(os.getenv("DEFAULT_INITIAL_DEPOSIT", "1000.0")),
-        default_backtest_equity=float(os.getenv("DEFAULT_BACKTEST_EQUITY", "1000.0")),
-        default_commission=float(os.getenv("DEFAULT_COMMISSION", "0.04")),
-        default_slippage=float(os.getenv("DEFAULT_SLIPPAGE", "0.0")),
+        default_initial_deposit=_safe_float(os.getenv("DEFAULT_INITIAL_DEPOSIT", "1000.0"), 1000.0, "DEFAULT_INITIAL_DEPOSIT"),
+        default_backtest_equity=_safe_float(os.getenv("DEFAULT_BACKTEST_EQUITY", "1000.0"), 1000.0, "DEFAULT_BACKTEST_EQUITY"),
+        default_commission=_safe_float(os.getenv("DEFAULT_COMMISSION", "0.04"), 0.04, "DEFAULT_COMMISSION"),
+        default_slippage=_safe_float(os.getenv("DEFAULT_SLIPPAGE", "0.0"), 0.0, "DEFAULT_SLIPPAGE"),
     )
 
     return AppConfig(
@@ -130,43 +172,57 @@ def load_config() -> AppConfig:
     2. If config.json exists, load from file
     3. Otherwise, create from environment variables and save to file
 
+    Thread-safe with double-checked locking pattern.
+
     Returns:
         AppConfig instance
 
     Raises:
-        ValueError: If config file is invalid JSON
-        pydantic.ValidationError: If config data doesn't match schema
+        ValueError: If config file is invalid JSON or validation fails
     """
     global _APP_CONFIG
 
-    # Return cached config if available
+    # Fast path: return cached config without lock (thread-safe read)
     if _APP_CONFIG is not None:
         return _APP_CONFIG
 
-    config_path = get_config_path()
-
-    # Load from file if it exists
-    if config_path.exists():
-        try:
-            logger.info("Loading configuration from %s", config_path)
-            with open(config_path, encoding="utf-8") as f:
-                data: Dict[str, Any] = json.load(f)
-            _APP_CONFIG = AppConfig(**data)
-            logger.info("Configuration loaded successfully")
+    # Slow path: load config with lock
+    with _CONFIG_LOCK:
+        # Double-check: another thread might have loaded it while we waited
+        if _APP_CONFIG is not None:
             return _APP_CONFIG
-        except (json.JSONDecodeError, ValueError) as exc:
-            logger.error("Failed to parse config file %s: %s", config_path, exc)
-            raise ValueError(f"Invalid configuration file: {exc}") from exc
 
-    # Create new config from environment variables
-    logger.info("No config file found, creating from environment variables")
-    _APP_CONFIG = _load_from_env()
+        config_path = get_config_path()
 
-    # Save to file for future use
-    save_config(_APP_CONFIG)
-    logger.info("Configuration saved to %s", config_path)
+        # Load from file if it exists
+        if config_path.exists():
+            try:
+                logger.info("Loading configuration from %s", config_path)
+                with open(config_path, encoding="utf-8") as f:
+                    data: Dict[str, Any] = json.load(f)
+                _APP_CONFIG = AppConfig(**data)
+                logger.info("Configuration loaded successfully")
+                return _APP_CONFIG
+            except json.JSONDecodeError as exc:
+                logger.error("Failed to parse config file %s: invalid JSON", config_path)
+                raise ValueError(f"Invalid JSON in configuration file: {exc}") from exc
+            except ValidationError as exc:
+                # Don't log exc directly - contains sensitive data
+                logger.error("Config validation failed: %d errors", exc.error_count())
+                raise ValueError("Configuration validation failed. Check config format.") from exc
+            except Exception as exc:
+                logger.error("Unexpected error loading config: %s", type(exc).__name__)
+                raise ValueError(f"Failed to load configuration: {exc}") from exc
 
-    return _APP_CONFIG
+        # Create new config from environment variables
+        logger.info("No config file found, creating from environment variables")
+        _APP_CONFIG = _load_from_env()
+
+        # Save to file for future use
+        save_config(_APP_CONFIG)
+        logger.info("Configuration saved to %s", config_path)
+
+        return _APP_CONFIG
 
 
 def save_config(app_config: AppConfig) -> None:

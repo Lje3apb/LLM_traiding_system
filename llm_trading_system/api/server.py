@@ -29,6 +29,8 @@ app = FastAPI(
 
 # Setup templates and static files
 BASE_DIR = Path(__file__).resolve().parent
+# Jinja2Templates enables autoescape by default for .html, .htm, .xml files
+# This prevents XSS attacks by automatically escaping user-provided content
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
@@ -80,6 +82,27 @@ def _validate_data_path(path_str: str) -> Path:
         f"Path '{path_str}' is outside allowed directories. "
         f"Data files must be in 'data/' or 'temp/' directories."
     )
+
+
+def _sanitize_error_message(e: Exception) -> str:
+    """Sanitize exception message to avoid leaking sensitive information.
+
+    Args:
+        e: The exception to sanitize
+
+    Returns:
+        A safe error message string
+    """
+    error_type = type(e).__name__
+
+    # Whitelist safe exception types that can show full message
+    safe_types = {"ValueError", "FileNotFoundError", "HTTPException", "KeyError"}
+
+    if error_type in safe_types:
+        return str(e)
+    else:
+        # Generic message for other exceptions (prevents leaking internal details)
+        return f"{error_type} occurred. Check server logs for details."
 
 
 @app.get("/health")
@@ -247,7 +270,7 @@ async def run_backtest(request: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Backtest failed: {type(e).__name__}: {e}"
+            status_code=500, detail=f"Backtest failed: {_sanitize_error_message(e)}"
         )
 
 
@@ -318,7 +341,7 @@ async def create_live_session(request: dict[str, Any]) -> dict[str, Any]:
     except Exception as e:
         # Other errors
         raise HTTPException(
-            status_code=500, detail=f"Failed to create session: {type(e).__name__}: {e}"
+            status_code=500, detail=f"Failed to create session: {_sanitize_error_message(e)}"
         )
 
 
@@ -345,7 +368,7 @@ async def start_live_session(session_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to start session: {type(e).__name__}: {e}"
+            status_code=500, detail=f"Failed to start session: {_sanitize_error_message(e)}"
         )
 
 
@@ -370,7 +393,7 @@ async def stop_live_session(session_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to stop session: {type(e).__name__}: {e}"
+            status_code=500, detail=f"Failed to stop session: {_sanitize_error_message(e)}"
         )
 
 
@@ -394,7 +417,7 @@ async def get_live_session_status(session_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to get session status: {type(e).__name__}: {e}"
+            status_code=500, detail=f"Failed to get session status: {_sanitize_error_message(e)}"
         )
 
 
@@ -411,7 +434,7 @@ async def list_live_sessions() -> dict[str, list[dict[str, Any]]]:
         return {"sessions": sessions}
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to list sessions: {type(e).__name__}: {e}"
+            status_code=500, detail=f"Failed to list sessions: {_sanitize_error_message(e)}"
         )
 
 
@@ -437,7 +460,7 @@ async def get_live_session_trades(session_id: str, limit: int = 100) -> dict[str
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to get trades: {type(e).__name__}: {e}"
+            status_code=500, detail=f"Failed to get trades: {_sanitize_error_message(e)}"
         )
 
 
@@ -463,7 +486,7 @@ async def get_live_session_bars(session_id: str, limit: int = 500) -> dict[str, 
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to get bars: {type(e).__name__}: {e}"
+            status_code=500, detail=f"Failed to get bars: {_sanitize_error_message(e)}"
         )
 
 
@@ -494,7 +517,7 @@ async def get_live_session_account(session_id: str) -> dict[str, Any]:
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get account snapshot: {type(e).__name__}: {e}",
+            detail=f"Failed to get account snapshot: {_sanitize_error_message(e)}",
         )
 
 
@@ -651,13 +674,14 @@ async def ui_index(request: Request) -> HTMLResponse:
                     'mode': mode,
                     'symbol': config.get('symbol', 'BTCUSDT'),
                 })
-            except Exception:
-                # If config fails to load, add minimal info
+            except Exception as e:
+                # If config fails to load, log error and show as Error type
+                logger.warning(f"Failed to load strategy config '{name}': {e}")
                 strategies.append({
                     'name': name,
-                    'type': 'Unknown',
-                    'mode': 'unknown',
-                    'symbol': 'BTCUSDT',
+                    'type': 'Error',  # More obvious than 'Unknown'
+                    'mode': 'error',
+                    'symbol': 'N/A',
                 })
 
         # Get live trading enabled from AppConfig
@@ -981,6 +1005,21 @@ async def ui_run_backtest(
         # Load config
         config = storage.load_config(name)
 
+        # Validate data_path to prevent path traversal attacks
+        try:
+            validated_path = _validate_data_path(data_path)
+            data_path = str(validated_path)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid data_path: {e}")
+
+        # Validate numeric parameters
+        if initial_equity <= 0:
+            raise HTTPException(status_code=400, detail="Initial equity must be positive")
+        if fee_rate < 0 or fee_rate > 1:
+            raise HTTPException(status_code=400, detail="Fee rate must be between 0 and 1")
+        if slippage_bps < 0:
+            raise HTTPException(status_code=400, detail="Slippage must be non-negative")
+
         # Run backtest
         summary = run_backtest_from_config_dict(
             config=config,
@@ -1022,7 +1061,7 @@ async def ui_run_backtest(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Backtest failed: {type(e).__name__}: {e}"
+            status_code=500, detail=f"Backtest failed: {_sanitize_error_message(e)}"
         )
 
 
@@ -1149,7 +1188,7 @@ async def ui_get_backtest_chart_data(name: str) -> JSONResponse:
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to load chart data: {type(e).__name__}: {e}"
+            detail=f"Failed to load chart data: {_sanitize_error_message(e)}"
         )
 
 
@@ -1317,12 +1356,16 @@ async def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
         # Fetch available Ollama models
         ollama_models = list_ollama_models(cfg.llm.ollama_base_url)
 
+        # Check if Ollama connection failed (empty list could mean connection error)
+        ollama_connection_error = len(ollama_models) == 0
+
         return templates.TemplateResponse(
             "settings.html",
             {
                 "request": request,
                 "config": cfg,
                 "ollama_models": ollama_models,
+                "ollama_connection_error": ollama_connection_error,
                 "saved": saved,
             },
         )
@@ -1363,6 +1406,7 @@ async def save_settings(
     edge_gamma: float = Form(...),
     base_k: float = Form(...),
     # Exchange settings
+    exchange_type: str = Form(...),
     exchange_name: str = Form(...),
     exchange_api_key: str = Form(""),
     exchange_api_secret: str = Form(""),
@@ -1389,6 +1433,34 @@ async def save_settings(
 
         # Load current config
         cfg = load_config()
+
+        # Validate numeric parameters
+        if not (0.0 <= temperature <= 2.0):
+            raise HTTPException(status_code=400, detail="Temperature must be between 0 and 2")
+        if timeout_seconds <= 0:
+            raise HTTPException(status_code=400, detail="Timeout must be positive")
+        if horizon_hours <= 0:
+            raise HTTPException(status_code=400, detail="Horizon hours must be positive")
+        if not (0.0 <= base_long_size <= 1.0):
+            raise HTTPException(status_code=400, detail="Base long size must be between 0 and 1")
+        if not (0.0 <= base_short_size <= 1.0):
+            raise HTTPException(status_code=400, detail="Base short size must be between 0 and 1")
+        if k_max < 0:
+            raise HTTPException(status_code=400, detail="K max must be non-negative")
+        if edge_gain < 0:
+            raise HTTPException(status_code=400, detail="Edge gain must be non-negative")
+        if not (0.0 <= edge_gamma <= 1.0):
+            raise HTTPException(status_code=400, detail="Edge gamma must be between 0 and 1")
+        if base_k < 0:
+            raise HTTPException(status_code=400, detail="Base k must be non-negative")
+        if default_initial_deposit < 0:
+            raise HTTPException(status_code=400, detail="Default initial deposit must be non-negative")
+        if default_backtest_equity < 0:
+            raise HTTPException(status_code=400, detail="Default backtest equity must be non-negative")
+        if not (0.0 <= default_commission <= 100.0):
+            raise HTTPException(status_code=400, detail="Default commission must be between 0 and 100")
+        if default_slippage < 0:
+            raise HTTPException(status_code=400, detail="Default slippage must be non-negative")
 
         # Update LLM settings
         cfg.llm.llm_provider = llm_provider
@@ -1431,6 +1503,7 @@ async def save_settings(
         cfg.risk.base_k = base_k
 
         # Update Exchange settings (preserve secrets if empty)
+        cfg.exchange.exchange_type = exchange_type
         cfg.exchange.exchange_name = exchange_name
         if exchange_api_key:
             cfg.exchange.api_key = exchange_api_key
