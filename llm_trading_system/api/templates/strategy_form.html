@@ -8,7 +8,7 @@
 </div>
 
 <form method="POST" action="/ui/strategies/{{ name if name else 'new' }}/save" class="strategy-form">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
     <div class="form-section">
         <h3>Basic Settings</h3>
 

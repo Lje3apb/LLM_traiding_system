@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+import secrets
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -10,9 +13,6 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, W
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi_csrf_protect import CsrfProtect
-from fastapi_csrf_protect.exceptions import CsrfProtectError
-from pydantic_settings import BaseSettings
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -26,35 +26,8 @@ from llm_trading_system.engine.live_service import (
 )
 from llm_trading_system.strategies import storage
 
-
-# ============================================================================
-# CSRF Protection Configuration
-# ============================================================================
-
-
-class CsrfSettings(BaseSettings):
-    """CSRF protection settings."""
-
-    secret_key: str = "your-secret-key-change-this-in-production-use-env-var"
-    cookie_samesite: str = "lax"
-    cookie_secure: bool = False  # Set to True in production with HTTPS
-
-    model_config = {"env_prefix": "CSRF_"}
-
-
-@CsrfProtect.load_config
-def get_csrf_config():
-    """Load CSRF configuration."""
-    return CsrfSettings()
-
-
-def get_csrf_protect() -> CsrfProtect:
-    """Dependency to get CSRF protection instance."""
-    return CsrfProtect()
-
-
-# Create rate limiter
-limiter = Limiter(key_func=get_remote_address)
+# Setup logger
+logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
@@ -63,26 +36,27 @@ app = FastAPI(
     description="HTTP JSON API for backtesting and strategy management",
 )
 
-# Add rate limiter to app state
-app.state.limiter = limiter
+# ============================================================================
+# Rate Limiting (DoS Protection)
+# ============================================================================
 
-# Add rate limit exception handler
+# Initialize rate limiter
+# Uses IP address as identifier for rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# Rate limit tiers:
+# - UI GET endpoints: 100/minute (viewing pages)
+# - UI POST endpoints: 30/minute (form submissions)
+# - API GET endpoints: 100/minute (reading data)
+# - API POST/DELETE endpoints: 30/minute (modifying data)
+# - Heavy operations: 3-5/minute (backtest, download)
+# - Settings save: 10/minute (configuration changes)
 
-# Add CSRF exception handler
-@app.exception_handler(CsrfProtectError)
-async def csrf_protect_exception_handler(
-    request: Request, exc: CsrfProtectError
-) -> JSONResponse:
-    """Handle CSRF protection errors."""
-    return JSONResponse(
-        status_code=403,
-        content={"detail": "CSRF token validation failed. Please refresh the page and try again."},
-    )
-
-
+# ============================================================================
 # Setup templates and static files
+# ============================================================================
 BASE_DIR = Path(__file__).resolve().parent
 # Jinja2Templates enables autoescape by default for .html, .htm, .xml files
 # This prevents XSS attacks by automatically escaping user-provided content
@@ -102,6 +76,98 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 # Global storage for backtest results (in-memory cache)
 # Key: strategy name, Value: dict with summary, ohlcv_data, trades, data_path
 _backtest_cache: dict[str, dict[str, Any]] = {}
+
+
+# ============================================================================
+# CSRF Protection (Double Submit Cookie Pattern)
+# ============================================================================
+
+
+def _generate_csrf_token() -> str:
+    """Generate a secure random CSRF token.
+
+    Returns:
+        64-character hexadecimal CSRF token
+    """
+    return secrets.token_hex(32)
+
+
+def _verify_csrf_token(request: Request, form_token: str | None) -> None:
+    """Verify CSRF token using Double Submit Cookie pattern.
+
+    Args:
+        request: FastAPI Request object containing cookies
+        form_token: CSRF token from form submission
+
+    Raises:
+        HTTPException: If CSRF validation fails (403 Forbidden)
+
+    Security Note:
+        Uses constant-time comparison to prevent timing attacks
+    """
+    # Get token from cookie
+    cookie_token = request.cookies.get("csrf_token")
+
+    # Validate both tokens exist
+    if not cookie_token:
+        raise HTTPException(
+            status_code=403,
+            detail="CSRF token missing from cookie. Please refresh the page and try again."
+        )
+
+    if not form_token:
+        raise HTTPException(
+            status_code=403,
+            detail="CSRF token missing from form submission. This request has been blocked for security."
+        )
+
+    # Constant-time comparison to prevent timing attacks
+    if not secrets.compare_digest(cookie_token, form_token):
+        raise HTTPException(
+            status_code=403,
+            detail="CSRF token validation failed. This may indicate a Cross-Site Request Forgery attack."
+        )
+
+
+@app.middleware("http")
+async def csrf_middleware(request: Request, call_next):
+    """Add CSRF token cookie to all GET requests for UI pages.
+
+    This middleware implements the Double Submit Cookie pattern:
+    1. On GET requests to /ui/*, set a random CSRF token in a cookie
+    2. The cookie is accessible to JavaScript (httponly=False)
+    3. Forms must submit this token for POST requests
+    4. Token is validated server-side against the cookie
+
+    Security Properties:
+    - SameSite=Strict prevents CSRF from external sites
+    - Secure=True in production (HTTPS only)
+    - Token changes on each page load (stateless)
+    """
+    response = await call_next(request)
+
+    # Only set CSRF cookie for GET requests to UI pages
+    if request.method == "GET" and request.url.path.startswith("/ui"):
+        csrf_token = _generate_csrf_token()
+
+        # Determine if we're in production
+        is_production = os.getenv("ENV", "").lower() == "production"
+
+        response.set_cookie(
+            key="csrf_token",
+            value=csrf_token,
+            httponly=False,  # Allow JavaScript to read for form submission
+            samesite="strict",  # Prevent CSRF from external sites
+            secure=is_production,  # HTTPS only in production
+            max_age=3600,  # 1 hour expiration
+        )
+
+    return response
+
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
 
 
 def _validate_data_path(path_str: str) -> Path:
@@ -171,7 +237,8 @@ def _sanitize_error_message(e: Exception) -> str:
 
 
 @app.get("/health")
-async def health_check() -> dict[str, str]:
+@limiter.limit("200/minute")  # Generous limit for monitoring
+async def health_check(request: Request) -> dict[str, str]:
     """Health check endpoint.
 
     Returns:
@@ -181,7 +248,8 @@ async def health_check() -> dict[str, str]:
 
 
 @app.get("/strategies")
-async def list_strategies() -> dict[str, list[str]]:
+@limiter.limit("100/minute")  # API read operations
+async def list_strategies(request: Request) -> dict[str, list[str]]:
     """List all available strategy configurations.
 
     Returns:
@@ -195,7 +263,8 @@ async def list_strategies() -> dict[str, list[str]]:
 
 
 @app.get("/strategies/{name}")
-async def get_strategy(name: str) -> dict[str, Any]:
+@limiter.limit("100/minute")  # API read operations
+async def get_strategy(request: Request, name: str) -> dict[str, Any]:
     """Load a strategy configuration by name.
 
     Args:
@@ -217,13 +286,8 @@ async def get_strategy(name: str) -> dict[str, Any]:
 
 
 @app.post("/strategies/{name}")
-@limiter.limit("20/minute")  # Allow reasonable strategy editing frequency
-async def save_strategy(
-    name: str,
-    request: Request,
-    config: dict[str, Any],
-    csrf_protect: CsrfProtect = Depends(get_csrf_protect),
-) -> dict[str, str]:
+@limiter.limit("30/minute")  # API write operations
+async def save_strategy(request: Request, name: str, config: dict[str, Any]) -> dict[str, str]:
     """Save or update a strategy configuration.
 
     Args:
@@ -258,7 +322,8 @@ async def save_strategy(
 
 
 @app.delete("/strategies/{name}")
-async def delete_strategy(name: str) -> dict[str, str]:
+@limiter.limit("30/minute")  # API write operations
+async def delete_strategy(request: Request, name: str) -> dict[str, str]:
     """Delete a strategy configuration.
 
     Args:
@@ -280,12 +345,8 @@ async def delete_strategy(name: str) -> dict[str, str]:
 
 
 @app.post("/backtest")
-@limiter.limit("5/minute")  # Limit resource-intensive backtests
-async def run_backtest(
-    request: Request,
-    body: dict[str, Any],
-    csrf_protect: CsrfProtect = Depends(get_csrf_protect),
-) -> dict[str, Any]:
+@limiter.limit("5/minute")  # Heavy operation - strict limit
+async def run_backtest(request_obj: Request, request: dict[str, Any]) -> dict[str, Any]:
     """Run a backtest for a given configuration and data.
 
     Request body should contain:
@@ -362,12 +423,8 @@ async def run_backtest(
 
 
 @app.post("/api/live/sessions")
-@limiter.limit("10/hour")  # Prevent excessive session creation
-async def create_live_session(
-    request: Request,
-    body: dict[str, Any],
-    csrf_protect: CsrfProtect = Depends(get_csrf_protect),
-) -> dict[str, Any]:
+@limiter.limit("20/minute")  # Live trading session creation
+async def create_live_session(request_obj: Request, request: dict[str, Any]) -> dict[str, Any]:
     """Create a new live/paper trading session.
 
     Request body should contain:
@@ -436,12 +493,8 @@ async def create_live_session(
 
 
 @app.post("/api/live/sessions/{session_id}/start")
-@limiter.limit("10/hour")  # Prevent excessive session starts
-async def start_live_session(
-    request: Request,
-    session_id: str,
-    csrf_protect: CsrfProtect = Depends(get_csrf_protect),
-) -> dict[str, Any]:
+@limiter.limit("50/minute")  # Session control
+async def start_live_session(request: Request, session_id: str) -> dict[str, Any]:
     """Start a live/paper trading session.
 
     Args:
@@ -471,12 +524,8 @@ async def start_live_session(
 
 
 @app.post("/api/live/sessions/{session_id}/stop")
-@limiter.limit("10/hour")  # Prevent excessive session stops
-async def stop_live_session(
-    request: Request,
-    session_id: str,
-    csrf_protect: CsrfProtect = Depends(get_csrf_protect),
-) -> dict[str, Any]:
+@limiter.limit("50/minute")  # Session control
+async def stop_live_session(request: Request, session_id: str) -> dict[str, Any]:
     """Stop a live/paper trading session.
 
     Args:
@@ -504,7 +553,8 @@ async def stop_live_session(
 
 
 @app.get("/api/live/sessions/{session_id}")
-async def get_live_session_status(session_id: str) -> dict[str, Any]:
+@limiter.limit("100/minute")  # API read operations
+async def get_live_session_status(request: Request, session_id: str) -> dict[str, Any]:
     """Get status and current state of a live/paper trading session.
 
     Args:
@@ -528,7 +578,8 @@ async def get_live_session_status(session_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/live/sessions")
-async def list_live_sessions() -> dict[str, list[dict[str, Any]]]:
+@limiter.limit("100/minute")  # API read operations
+async def list_live_sessions(request: Request) -> dict[str, list[dict[str, Any]]]:
     """List all live/paper trading sessions.
 
     Returns:
@@ -545,7 +596,8 @@ async def list_live_sessions() -> dict[str, list[dict[str, Any]]]:
 
 
 @app.get("/api/live/sessions/{session_id}/trades")
-async def get_live_session_trades(session_id: str, limit: int = 100) -> dict[str, Any]:
+@limiter.limit("100/minute")  # API read operations
+async def get_live_session_trades(request: Request, session_id: str, limit: int = 100) -> dict[str, Any]:
     """Get trades from a live/paper trading session.
 
     Args:
@@ -571,7 +623,8 @@ async def get_live_session_trades(session_id: str, limit: int = 100) -> dict[str
 
 
 @app.get("/api/live/sessions/{session_id}/bars")
-async def get_live_session_bars(session_id: str, limit: int = 500) -> dict[str, Any]:
+@limiter.limit("100/minute")  # API read operations
+async def get_live_session_bars(request: Request, session_id: str, limit: int = 500) -> dict[str, Any]:
     """Get recent bars from a live/paper trading session.
 
     Args:
@@ -597,7 +650,8 @@ async def get_live_session_bars(session_id: str, limit: int = 500) -> dict[str, 
 
 
 @app.get("/api/live/sessions/{session_id}/account")
-async def get_live_session_account(session_id: str) -> dict[str, Any]:
+@limiter.limit("100/minute")  # API read operations
+async def get_live_session_account(request: Request, session_id: str) -> dict[str, Any]:
     """Get account snapshot from a live/paper trading session.
 
     This returns the current account state including:
@@ -745,7 +799,8 @@ async def live_session_websocket(websocket: WebSocket, session_id: str) -> None:
 
 
 @app.get("/", response_class=RedirectResponse)
-async def root() -> RedirectResponse:
+@limiter.limit("100/minute")  # UI page views
+async def root(request: Request) -> RedirectResponse:
     """Redirect root to Web UI.
 
     Returns:
@@ -755,10 +810,8 @@ async def root() -> RedirectResponse:
 
 
 @app.get("/ui/", response_class=HTMLResponse)
-async def ui_index(
-    request: Request,
-    csrf_protect: CsrfProtect = Depends(get_csrf_protect),
-) -> HTMLResponse:
+@limiter.limit("100/minute")  # UI page views
+async def ui_index(request: Request) -> HTMLResponse:
     """Web UI: List all strategy configurations.
 
     Args:
@@ -827,6 +880,7 @@ async def ui_index(
 
 
 @app.get("/ui/live", response_class=HTMLResponse)
+@limiter.limit("100/minute")  # UI page views
 async def ui_live_trading(request: Request) -> HTMLResponse:
     """Web UI: Live trading page for paper and real trading.
 
@@ -871,10 +925,8 @@ async def ui_live_trading(request: Request) -> HTMLResponse:
 
 
 @app.get("/ui/strategies/new", response_class=HTMLResponse)
-async def ui_new_strategy(
-    request: Request,
-    csrf_protect: CsrfProtect = Depends(get_csrf_protect),
-) -> HTMLResponse:
+@limiter.limit("100/minute")  # UI page views
+async def ui_new_strategy(request: Request) -> HTMLResponse:
     """Web UI: Show form to create a new strategy.
 
     Args:
@@ -898,11 +950,8 @@ async def ui_new_strategy(
 
 
 @app.get("/ui/strategies/{name}/edit", response_class=HTMLResponse)
-async def ui_edit_strategy(
-    request: Request,
-    name: str,
-    csrf_protect: CsrfProtect = Depends(get_csrf_protect),
-) -> HTMLResponse:
+@limiter.limit("100/minute")  # UI page views
+async def ui_edit_strategy(request: Request, name: str) -> HTMLResponse:
     """Web UI: Show form to edit an existing strategy.
 
     Args:
@@ -937,11 +986,11 @@ async def ui_edit_strategy(
 
 
 @app.post("/ui/strategies/{name}/save")
-@limiter.limit("20/minute")  # Allow reasonable strategy editing frequency
+@limiter.limit("30/minute")  # UI form submissions
 async def ui_save_strategy(
     request: Request,
     name: str,
-    csrf_protect: CsrfProtect = Depends(get_csrf_protect),
+    csrf_token: str = Form(...),  # CSRF protection
     strategy_name: str = Form(..., alias="name"),
     strategy_type: str = Form(...),
     mode: str = Form(...),
@@ -994,8 +1043,8 @@ async def ui_save_strategy(
     Raises:
         HTTPException: If validation fails (400) or save error (500)
     """
-    # Validate CSRF token
-    await csrf_protect.validate_csrf(request)
+    # CSRF validation (must be first to prevent processing invalid requests)
+    _verify_csrf_token(request, csrf_token)
 
     # Use form name if different from URL name (for new strategies)
     actual_name = strategy_name if name == "new" else name
@@ -1065,16 +1114,18 @@ async def ui_save_strategy(
 
 
 @app.post("/ui/strategies/{name}/delete")
-@limiter.limit("10/minute")  # Prevent accidental rapid deletions
+@limiter.limit("30/minute")  # UI form submissions
 async def ui_delete_strategy(
     request: Request,
     name: str,
-    csrf_protect: CsrfProtect = Depends(get_csrf_protect),
+    csrf_token: str = Form(...),  # CSRF protection
 ) -> RedirectResponse:
     """Web UI: Delete a strategy configuration.
 
     Args:
+        request: FastAPI request object
         name: Strategy config name
+        csrf_token: CSRF token from form
 
     Returns:
         Redirect to index page
@@ -1086,6 +1137,9 @@ async def ui_delete_strategy(
     await csrf_protect.validate_csrf(request)
 
     try:
+        # CSRF validation (must be first to prevent processing invalid requests)
+        _verify_csrf_token(request, csrf_token)
+
         storage.delete_config(name)
         return RedirectResponse(url="/ui/", status_code=303)
     except FileNotFoundError:
@@ -1095,11 +1149,8 @@ async def ui_delete_strategy(
 
 
 @app.get("/ui/strategies/{name}/backtest", response_class=HTMLResponse)
-async def ui_backtest_form(
-    request: Request,
-    name: str,
-    csrf_protect: CsrfProtect = Depends(get_csrf_protect),
-) -> HTMLResponse:
+@limiter.limit("100/minute")  # UI page views
+async def ui_backtest_form(request: Request, name: str) -> HTMLResponse:
     """Web UI: Show backtest form for a strategy.
 
     Args:
@@ -1147,11 +1198,11 @@ async def ui_backtest_form(
 
 
 @app.post("/ui/strategies/{name}/backtest", response_class=HTMLResponse)
-@limiter.limit("5/minute")  # Limit resource-intensive backtests
+@limiter.limit("5/minute")  # Heavy operation - strict limit
 async def ui_run_backtest(
     request: Request,
     name: str,
-    csrf_protect: CsrfProtect = Depends(get_csrf_protect),
+    csrf_token: str = Form(...),  # CSRF protection
     data_path: str = Form(...),
     use_llm: bool = Form(False),
     llm_model: str = Form("llama3.2"),
@@ -1183,6 +1234,9 @@ async def ui_run_backtest(
     await csrf_protect.validate_csrf(request)
 
     try:
+        # CSRF validation (must be first to prevent processing invalid requests)
+        _verify_csrf_token(request, csrf_token)
+
         # Load config
         config = storage.load_config(name)
 
@@ -1247,7 +1301,8 @@ async def ui_run_backtest(
 
 
 @app.get("/ui/backtest/{name}/chart-data")
-async def ui_get_backtest_chart_data(name: str) -> JSONResponse:
+@limiter.limit("60/minute")  # Chart data requests
+async def ui_get_backtest_chart_data(request: Request, name: str) -> JSONResponse:
     """Web UI: Get chart data for backtest visualization.
 
     Args:
@@ -1374,11 +1429,11 @@ async def ui_get_backtest_chart_data(name: str) -> JSONResponse:
 
 
 @app.post("/ui/strategies/{name}/download_data")
-@limiter.limit("5/minute")  # Limit expensive data downloads
+@limiter.limit("3/minute")  # Very heavy operation - very strict limit
 async def ui_download_data(
     request: Request,
     name: str,
-    csrf_protect: CsrfProtect = Depends(get_csrf_protect),
+    csrf_token: str = Form(...),  # CSRF protection
     symbol: str = Form(...),
     interval: str = Form(...),
     start_date: str = Form(...),
@@ -1396,8 +1451,8 @@ async def ui_download_data(
     Returns:
         Streaming response with progress updates (newline-delimited JSON)
     """
-    # Validate CSRF token
-    await csrf_protect.validate_csrf(request)
+    # CSRF validation (must be first to prevent processing invalid requests)
+    _verify_csrf_token(request, csrf_token)
 
     from datetime import datetime, timedelta
     import pandas as pd
@@ -1527,11 +1582,8 @@ async def ui_download_data(
 
 
 @app.get("/ui/settings", response_class=HTMLResponse)
-async def settings_page(
-    request: Request,
-    saved: bool = False,
-    csrf_protect: CsrfProtect = Depends(get_csrf_protect),
-) -> HTMLResponse:
+@limiter.limit("100/minute")  # UI page views
+async def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
     """Web UI: System settings page for AppConfig management.
 
     Args:
@@ -1573,9 +1625,10 @@ async def settings_page(
 
 
 @app.post("/ui/settings")
-@limiter.limit("10/minute")  # Protect API key changes
+@limiter.limit("10/minute")  # Settings save - moderate limit
 async def save_settings(
     request: Request,
+    csrf_token: str = Form(...),  # CSRF protection
     # LLM settings
     llm_provider: str = Form(...),
     default_model: str = Form(...),
@@ -1635,6 +1688,9 @@ async def save_settings(
     try:
         import os
         from llm_trading_system.config.service import load_config, save_config
+
+        # CSRF validation (must be first to prevent processing invalid requests)
+        _verify_csrf_token(request, csrf_token)
 
         # SECURITY: Check for HTTPS when submitting API keys in production
         # Allow HTTP only in development (ENV != production)
@@ -1749,7 +1805,8 @@ async def save_settings(
 
 
 @app.get("/ui/data/files")
-async def ui_list_data_files() -> JSONResponse:
+@limiter.limit("100/minute")  # File listing
+async def ui_list_data_files(request: Request) -> JSONResponse:
     """Web UI: List available CSV data files.
 
     Returns:
