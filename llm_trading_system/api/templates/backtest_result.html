@@ -804,7 +804,7 @@
                 const idx = parseInt(row.dataset.tradeIndex);
                 const trade = tradesData[idx];
                 if (trade && chartInstance) {
-                    chartInstance.timeScale().setVisibleLogicalRange({
+                    chartInstance.timeScale().setVisibleRange({
                         from: trade.entry_time - 86400, // 1 day before
                         to: (trade.exit_time || trade.entry_time) + 86400 // 1 day after
                     });

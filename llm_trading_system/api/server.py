@@ -347,7 +347,7 @@ async def ui_save_strategy(
     rsi_ovb: int = Form(...),
     rsi_ovs: int = Form(...),
     bb_len: int = Form(...),
-    bb_std: float = Form(...),
+    bb_mult: float = Form(...),
     atr_len: int = Form(...),
     adx_len: int = Form(...),
     # LLM parameters
@@ -412,7 +412,7 @@ async def ui_save_strategy(
         "rsi_ovb": rsi_ovb,
         "rsi_ovs": rsi_ovs,
         "bb_len": bb_len,
-        "bb_std": bb_std,
+        "bb_mult": bb_mult,
         "atr_len": atr_len,
         "adx_len": adx_len,
         # LLM parameters
