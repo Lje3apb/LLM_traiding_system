@@ -166,7 +166,12 @@ def _evaluate_expression(
         if len(parts) == 2:
             left = _evaluate_expression(parts[0].strip(), indicators)
             right = _evaluate_expression(parts[1].strip(), indicators)
-            if left is not None and right is not None and right != 0:
+            if left is not None and right is not None:
+                if right == 0:
+                    # HIGH-7 fix: log division by zero
+                    import logging
+                    logging.getLogger(__name__).warning(f"Division by zero in expression: {expr}")
+                    return None
                 return left / right
 
     # No expression found, return simple value

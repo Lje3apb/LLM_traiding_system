@@ -86,6 +86,13 @@ class IndicatorStrategy(Strategy):
         Returns:
             Order to execute or None to maintain current position
         """
+        # Validate bar data (CRITICAL-2 fix)
+        if not self._validate_bar(bar):
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Invalid bar data at {bar.timestamp}: {bar}")
+            return None
+
         # Update OHLCV buffers
         self.closes.append(bar.close)
         self.highs.append(bar.high)
@@ -218,7 +225,18 @@ class IndicatorStrategy(Strategy):
             # Exit short position
             return self._close_position()
 
-        # Check entry signals
+        # Check for conflicting signals (CRITICAL-1 fix)
+        if signals["long_entry"] and signals["short_entry"]:
+            # Both signals true - resolve conflict by taking no action
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Conflicting signals at {bar.timestamp}: both long and short entry. "
+                "Taking no action to avoid undefined behavior."
+            )
+            return None
+
+        # Check entry signals (now mutually exclusive)
         if signals["long_entry"] and self.config.allow_long:
             order = self._prepare_entry("long", current_position, bar)
             if order:
@@ -279,7 +297,20 @@ class IndicatorStrategy(Strategy):
             size = base_fraction * (self.config.martingale_mult ** step)
         else:
             size = base_fraction
-        return min(size, 1.0)  # Cap at 100% equity
+
+        # Apply maximum position size cap (HIGH-1 fix)
+        size = min(size, self.config.max_position_size)
+
+        # Warn if approaching dangerous levels
+        if size > 0.20:  # More than 20% of equity
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Large position size: {size:.2%} of equity "
+                f"(martingale step={step}, closed_trades={self._closed_trades_count})"
+            )
+
+        return min(size, 1.0)  # Final cap at 100%
 
     def _base_position_fraction(self) -> float:
         """Resolve configured base size, including percent inputs."""
@@ -368,6 +399,38 @@ class IndicatorStrategy(Strategy):
         else:
             # Handle wrap-around (e.g., 22:00 - 06:00)
             return hour >= start or hour <= end
+
+    def _validate_bar(self, bar: Bar) -> bool:
+        """Validate bar data integrity (CRITICAL-2 fix).
+
+        Args:
+            bar: Bar to validate
+
+        Returns:
+            True if bar is valid, False otherwise
+        """
+        import math
+
+        # Check for NaN/inf in all price and volume fields
+        for val in [bar.open, bar.high, bar.low, bar.close, bar.volume]:
+            if not math.isfinite(val):
+                return False
+
+        # Check OHLC relationships
+        if bar.high < bar.low:
+            return False
+        if not (bar.low <= bar.open <= bar.high):
+            return False
+        if not (bar.low <= bar.close <= bar.high):
+            return False
+
+        # Check non-negative volume and positive prices
+        if bar.volume < 0:
+            return False
+        if min(bar.open, bar.high, bar.low, bar.close) <= 0:
+            return False
+
+        return True
 
 
 __all__ = ["IndicatorStrategy"]

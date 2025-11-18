@@ -140,15 +140,31 @@ class LLMRegimeWrappedStrategy(Strategy):
                 temperature=self.regime_config.temperature,
             )
 
-            # Extract multipliers
-            self._k_long = result["k_long"]
-            self._k_short = result["k_short"]
-            self._last_llm_output = result["llm_output"]
+            # Validate and extract multipliers safely (CRITICAL-3 fix)
+            k_long = result.get("k_long")
+            k_short = result.get("k_short")
+            llm_output = result.get("llm_output")
 
-            # Log regime
-            regime_label = self._last_llm_output.get("regime_label", "unknown")
-            prob_bull = self._last_llm_output.get("prob_bull", 0.5)
-            prob_bear = self._last_llm_output.get("prob_bear", 0.5)
+            # Validate required keys
+            if k_long is None or k_short is None or llm_output is None:
+                raise ValueError("Missing required keys in LLM result")
+
+            # Validate multiplier ranges (HIGH-4 fix)
+            import math
+            if not math.isfinite(k_long) or not (0 <= k_long <= self.regime_config.k_max * 2):
+                raise ValueError(f"k_long out of range: {k_long}")
+            if not math.isfinite(k_short) or not (0 <= k_short <= self.regime_config.k_max * 2):
+                raise ValueError(f"k_short out of range: {k_short}")
+
+            # Update state only if validation passes
+            self._k_long = k_long
+            self._k_short = k_short
+            self._last_llm_output = llm_output
+
+            # Safe access with defaults
+            regime_label = llm_output.get("regime_label", "unknown")
+            prob_bull = llm_output.get("prob_bull", 0.5)
+            prob_bear = llm_output.get("prob_bear", 0.5)
 
             logger.info(
                 f"LLM regime updated: {regime_label} | "
@@ -156,7 +172,8 @@ class LLMRegimeWrappedStrategy(Strategy):
                 f"k_long={self._k_long:.3f} k_short={self._k_short:.3f}"
             )
 
-        except Exception as e:
+        except (KeyError, ValueError, TypeError, AttributeError) as e:
+            # CRITICAL-4 fix: catch only specific exceptions
             logger.error(f"Failed to update LLM regime: {e}", exc_info=True)
             # Keep previous multipliers on error
             logger.warning(
@@ -194,18 +211,25 @@ class LLMRegimeWrappedStrategy(Strategy):
         # Build snapshot with toggles from config
         snapshot = build_market_snapshot(settings)
 
+        # Validate that Binance data is enabled (HIGH-6 fix)
+        if not self.regime_config.use_binance_data:
+            logger.error("use_binance_data=False disables market data, which is required for regime analysis")
+            raise ValueError("Cannot build snapshot without Binance market data")
+
         # Optionally disable heavy data sources for live mode
         if not self.regime_config.use_onchain_data:
             # Clear on-chain data to reduce latency
+            logger.warning("use_onchain_data=False, regime analysis may be less accurate")
             if "btc_metrics" in snapshot:
                 snapshot["btc_metrics"] = {}
             if "onchain" in snapshot:
                 snapshot["onchain"] = {}
 
-        if not self.regime_config.use_binance_data:
-            # Clear market data (not recommended, but possible)
-            if "market" in snapshot:
-                snapshot["market"] = {}
+        # Validate snapshot has required fields (HIGH-6 fix)
+        required_fields = ["market", "horizon_hours", "base_asset"]
+        for field in required_fields:
+            if field not in snapshot or not snapshot[field]:
+                raise ValueError(f"Snapshot missing required field: {field}")
 
         return snapshot
 
@@ -247,6 +271,14 @@ class LLMRegimeWrappedStrategy(Strategy):
 
         # Scale position size
         scaled_size = order.size * multiplier
+
+        # Validate scaled size (CRITICAL-5 fix)
+        import math
+        if not math.isfinite(scaled_size) or scaled_size < 0:
+            logger.error(
+                f"Invalid scaled_size={scaled_size} from order.size={order.size} * multiplier={multiplier}"
+            )
+            return None
 
         # Filter out very small positions
         if scaled_size < 0.001:
