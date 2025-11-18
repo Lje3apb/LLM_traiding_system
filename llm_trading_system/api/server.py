@@ -42,11 +42,11 @@ app = FastAPI(
 
 # Initialize rate limiter
 # Uses IP address as identifier for rate limiting
-# Note: Explicitly set storage_uri and disable .env reading to avoid encoding issues on Windows
+# Note: Use os.devnull to prevent .env reading and avoid Windows encoding issues
 limiter = Limiter(
     key_func=get_remote_address,
     storage_uri="memory://",  # Use in-memory storage (suitable for single-instance deployment)
-    config_filename=None,  # Disable automatic .env file reading (prevents Windows encoding issues)
+    config_filename=os.devnull,  # Use null device to prevent .env reading (cross-platform fix for Windows encoding)
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
