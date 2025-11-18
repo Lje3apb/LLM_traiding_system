@@ -190,4 +190,91 @@ class IndicatorStrategyConfig:
         return result
 
 
-__all__ = ["IndicatorStrategyConfig"]
+@dataclass
+class LLMRegimeConfig:
+    """Configuration for LLM regime analysis and position sizing.
+
+    This config controls how often the LLM is queried for market regime
+    assessment and how the regime multipliers (k_long/k_short) are applied.
+    """
+
+    # LLM refresh parameters
+    horizon_bars: int = 48  # How often to query LLM (e.g., every 48 bars of 5m = 4 hours)
+    base_size: float = 0.01  # Base position size for regime calculation
+    k_max: float = 2.0  # Maximum multiplier for position sizing
+    temperature: float = 0.1  # LLM temperature for regime evaluation
+
+    # Market snapshot parameters
+    horizon_hours: int = 4  # Forecast horizon in hours
+    base_asset: str = "BTCUSDT"  # Asset for market snapshot
+
+    # LLM client settings (optional overrides)
+    llm_model: str | None = None  # Model name (e.g., "llama3.2", "gpt-4")
+    llm_provider: str = "ollama"  # Provider: "ollama", "openai", etc.
+    llm_base_url: str | None = None  # Override LLM API base URL
+    llm_timeout: int = 60  # LLM request timeout in seconds
+
+    # Regime filtering parameters
+    min_prob_edge: float = 0.05  # Minimum |prob_bull - prob_bear| to apply multipliers
+    min_confidence_scaling: bool = True  # Scale by confidence_level from LLM
+    neutral_k: float = 0.5  # Multiplier to use in neutral regime
+
+    # Snapshot data sources (toggles for live mode)
+    use_binance_data: bool = True  # Fetch Binance market data
+    use_onchain_data: bool = False  # Fetch on-chain metrics (slower)
+    use_news_data: bool = False  # Fetch news sentiment (requires API keys)
+
+    def __post_init__(self) -> None:
+        """Validate configuration parameters."""
+        if self.horizon_bars < 1:
+            raise ValueError(f"horizon_bars must be >= 1, got {self.horizon_bars}")
+
+        if self.base_size <= 0 or self.base_size > 1.0:
+            raise ValueError(f"base_size must be in (0, 1], got {self.base_size}")
+
+        if self.k_max < 1.0:
+            raise ValueError(f"k_max must be >= 1.0, got {self.k_max}")
+
+        if not (0.0 <= self.temperature <= 2.0):
+            raise ValueError(f"temperature must be in [0, 2], got {self.temperature}")
+
+        if self.horizon_hours < 1:
+            raise ValueError(f"horizon_hours must be >= 1, got {self.horizon_hours}")
+
+        if not (0.0 <= self.min_prob_edge <= 0.5):
+            raise ValueError(
+                f"min_prob_edge must be in [0, 0.5], got {self.min_prob_edge}"
+            )
+
+        if self.neutral_k < 0 or self.neutral_k > self.k_max:
+            raise ValueError(
+                f"neutral_k must be in [0, k_max], got {self.neutral_k} (k_max={self.k_max})"
+            )
+
+        if self.llm_timeout < 1:
+            raise ValueError(f"llm_timeout must be >= 1, got {self.llm_timeout}")
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> LLMRegimeConfig:
+        """Create config from dictionary, ignoring unknown keys.
+
+        Args:
+            data: Dictionary with configuration parameters
+
+        Returns:
+            LLMRegimeConfig instance
+        """
+        valid_fields = {f.name for f in fields(cls)}
+        filtered = {k: v for k, v in data.items() if k in valid_fields}
+        return cls(**filtered)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert config to a JSON-serializable dictionary.
+
+        Returns:
+            Dictionary with all configuration parameters
+        """
+        return asdict(self)
+
+
+__all__ = ["IndicatorStrategyConfig", "LLMRegimeConfig"]

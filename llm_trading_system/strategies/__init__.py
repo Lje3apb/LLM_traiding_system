@@ -2,7 +2,7 @@
 
 from llm_trading_system.strategies.base import AccountState, Bar, Order, Strategy
 from llm_trading_system.strategies.combined_strategy import CombinedStrategy
-from llm_trading_system.strategies.configs import IndicatorStrategyConfig
+from llm_trading_system.strategies.configs import IndicatorStrategyConfig, LLMRegimeConfig
 from llm_trading_system.strategies.factory import create_strategy_from_config
 from llm_trading_system.strategies.indicator_strategy import IndicatorStrategy
 from llm_trading_system.strategies.indicators import (
@@ -19,7 +19,10 @@ from llm_trading_system.strategies.indicators import (
     rsi,
     sma,
 )
-from llm_trading_system.strategies.llm_regime_strategy import LLMRegimeStrategy
+from llm_trading_system.strategies.llm_regime_strategy import (
+    LLMRegimeStrategy,
+    LLMRegimeWrappedStrategy,
+)
 from llm_trading_system.strategies.modes import StrategyMode
 from llm_trading_system.strategies.rules import Condition, RuleSet, evaluate_rules
 
@@ -29,10 +32,12 @@ __all__ = [
     "Order",
     "AccountState",
     "LLMRegimeStrategy",
+    "LLMRegimeWrappedStrategy",
     "IndicatorStrategy",
     "CombinedStrategy",
     "StrategyMode",
     "IndicatorStrategyConfig",
+    "LLMRegimeConfig",
     # Factory
     "create_strategy_from_config",
     # Batch indicator functions
