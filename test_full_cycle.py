@@ -21,7 +21,14 @@ Options:
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Any, Dict
+
+# Add project root to Python path (allows running from any directory)
+script_dir = Path(__file__).resolve().parent
+project_root = script_dir.parent if script_dir.name == "tests" else script_dir
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 # Import from project
 from llm_trading_system.core.market_snapshot import (
