@@ -2,6 +2,12 @@
 
 from llm_trading_system.engine.backtester import Backtester, BacktestResult
 from llm_trading_system.engine.data_feed import CSVDataFeed
+from llm_trading_system.engine.live_trading import (
+    BarAggregator,
+    LiveTradingEngine,
+    LiveTradingResult,
+    parse_timeframe,
+)
 from llm_trading_system.engine.portfolio import AccountState, PortfolioSimulator, Trade
 
 __all__ = [
@@ -11,4 +17,8 @@ __all__ = [
     "PortfolioSimulator",
     "AccountState",
     "Trade",
+    "LiveTradingEngine",
+    "LiveTradingResult",
+    "BarAggregator",
+    "parse_timeframe",
 ]

@@ -47,6 +47,7 @@ setup(
             "llm-trading-cli=llm_trading_system.cli.full_cycle_cli:main",
             "llm-trading-check-deps=llm_trading_system.cli.check_dependencies:main",
             "llm-trading-test-ollama=llm_trading_system.cli.quick_test_ollama:main",
+            "llm-trading-live=llm_trading_system.cli.live_trading_cli:main",
         ],
     },
 )

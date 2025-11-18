@@ -1413,15 +1413,134 @@ python -m llm_trading_system.cli.full_cycle_cli \
 - Максимальный коэффициент (обычно 2.0)
 - Ограничивает максимальное увеличение размера позиции
 
-### 6.5 Когда использовать каждый режим
+### 6.5 Программное использование: LLMRegimeWrappedStrategy
+
+С версии 0.3.0 доступен новый класс **`LLMRegimeWrappedStrategy`**, который позволяет программно обернуть любую стратегию LLM-фильтром.
+
+#### Концепция
+
+`LLMRegimeWrappedStrategy` — это wrapper-стратегия, которая:
+1. Принимает внутреннюю стратегию (например, `IndicatorStrategy`)
+2. Периодически запрашивает LLM для оценки режима рынка
+3. Масштабирует сигналы внутренней стратегии через множители `k_long`/`k_short`
+
+**Преимущества**:
+- ✅ Модульность: любая стратегия может быть обернута LLM-фильтром
+- ✅ Гибкость: настройка через `LLMRegimeConfig`
+- ✅ Прозрачность: доступ к текущему режиму через свойства
+- ✅ Отказоустойчивость: при ошибке LLM сохраняются предыдущие множители
+
+#### Пример использования в live trading
+
+```python
+from llm_trading_system.engine import LiveTradingEngine, PortfolioSimulator
+from llm_trading_system.exchange import get_exchange_client_from_env
+from llm_trading_system.strategies.indicator_strategy import IndicatorStrategy
+from llm_trading_system.strategies.configs import IndicatorStrategyConfig, LLMRegimeConfig
+from llm_trading_system.strategies.llm_regime_strategy import LLMRegimeWrappedStrategy
+from llm_trading_system.infra.llm_infra.providers_ollama import OllamaProvider
+from llm_trading_system.infra.llm_infra.client_sync import SyncLLMClient
+
+# 1. Создать индикаторную стратегию
+indicator_config = IndicatorStrategyConfig(
+    symbol="BTCUSDT",
+    rsi_len=14,
+    bb_len=20,
+    bb_mult=2.0,
+    base_size=0.02,
+)
+
+inner_strategy = IndicatorStrategy("BTC/USDT", indicator_config)
+
+# 2. Создать LLM клиент
+llm_provider = OllamaProvider(
+    model="llama3.2",
+    base_url="http://localhost:11434"
+)
+llm_client = SyncLLMClient(provider=llm_provider)
+
+# 3. Настроить LLM режим
+regime_config = LLMRegimeConfig(
+    horizon_bars=48,          # Обновлять каждые 48 баров (4 часа на 5m)
+    base_size=0.02,           # Базовый размер для расчета k
+    k_max=2.0,                # Максимальный множитель
+    temperature=0.1,          # Низкая температура для стабильности
+    horizon_hours=4,          # Горизонт прогноза
+    min_prob_edge=0.05,       # Фильтр слабых сигналов
+    use_onchain_data=False,   # Отключить on-chain (медленно)
+    use_news_data=False,      # Отключить новости
+)
+
+# 4. Обернуть стратегию LLM-фильтром
+wrapped_strategy = LLMRegimeWrappedStrategy(
+    inner_strategy=inner_strategy,
+    llm_client=llm_client,
+    regime_config=regime_config,
+)
+
+# 5. Создать остальные компоненты
+exchange = get_exchange_client_from_env()  # paper или binance
+portfolio = PortfolioSimulator(...)
+
+# 6. Создать live trading engine
+engine = LiveTradingEngine(
+    strategy=wrapped_strategy,  # Обернутая стратегия
+    exchange=exchange,
+    portfolio=portfolio,
+    symbol="BTC/USDT",
+    timeframe="5m",
+)
+
+# 7. Запустить
+result = engine.run_forever()
+```
+
+#### Доступ к информации о режиме
+
+```python
+# Получить текущий режим
+regime = wrapped_strategy.current_regime
+if regime:
+    print(f"Режим: {regime['regime_label']}")
+    print(f"Prob Bull: {regime['prob_bull']:.3f}")
+    print(f"Prob Bear: {regime['prob_bear']:.3f}")
+
+# Получить текущие множители
+k_long, k_short = wrapped_strategy.current_multipliers
+print(f"k_long={k_long:.3f}, k_short={k_short:.3f}")
+```
+
+#### Параметры LLMRegimeConfig
+
+| Параметр | По умолчанию | Описание |
+|----------|--------------|----------|
+| `horizon_bars` | 48 | Частота обновления LLM (в барах) |
+| `base_size` | 0.01 | Базовый размер позиции для расчета k |
+| `k_max` | 2.0 | Максимальный множитель |
+| `temperature` | 0.1 | Температура LLM (ниже = стабильнее) |
+| `horizon_hours` | 4 | Горизонт прогноза для snapshot |
+| `min_prob_edge` | 0.05 | Минимальная разница вероятностей |
+| `neutral_k` | 0.5 | Множитель в нейтральном режиме |
+| `use_binance_data` | True | Использовать данные Binance |
+| `use_onchain_data` | False | Использовать on-chain метрики |
+| `use_news_data` | False | Использовать новости |
+
+**Рекомендации**:
+- Начинайте с `horizon_bars=48` (4 часа на 5m) для баланса между свежестью и стабильностью
+- Отключайте `use_onchain_data` и `use_news_data` в live режиме для снижения latency
+- Используйте `min_prob_edge=0.05` для фильтрации слабых сигналов
+- Для агрессивной торговли увеличьте `k_max` до 3.0
+
+### 6.6 Когда использовать каждый режим
 
 | Режим | Когда использовать |
 |-------|--------------------|
 | **QUANT_ONLY** | Чистая техническая стратегия, не нужен анализ LLM |
 | **LLM_ONLY** | Полагаетесь только на анализ LLM (экспериментальный подход) |
-| **HYBRID** | Хотите объединить точность индикаторов и "понимание" рынка от LLM |
+| **HYBRID (Web UI)** | Хотите объединить индикаторы и LLM через веб-интерфейс |
+| **LLMRegimeWrappedStrategy** | Программное создание гибридной стратегии с полным контролем |
 
-**Рекомендация**: Для большинства случаев начинайте с **QUANT_ONLY**, затем тестируйте **HYBRID** для улучшения.
+**Рекомендация**: Для большинства случаев начинайте с **QUANT_ONLY**, затем тестируйте **LLMRegimeWrappedStrategy** для улучшения.
 
 ---
 
