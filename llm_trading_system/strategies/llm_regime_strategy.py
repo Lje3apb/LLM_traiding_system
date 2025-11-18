@@ -172,9 +172,12 @@ class LLMRegimeWrappedStrategy(Strategy):
                 f"k_long={self._k_long:.3f} k_short={self._k_short:.3f}"
             )
 
-        except (KeyError, ValueError, TypeError, AttributeError) as e:
-            # CRITICAL-4 fix: catch only specific exceptions
-            logger.error(f"Failed to update LLM regime: {e}", exc_info=True)
+        except Exception as e:
+            # Only log full stack trace in DEBUG mode to avoid exposing internals
+            logger.error(
+                f"Failed to update LLM regime: {e}",
+                exc_info=(logger.level == logging.DEBUG)
+            )
             # Keep previous multipliers on error
             logger.warning(
                 f"Keeping previous multipliers: k_long={self._k_long:.3f} k_short={self._k_short:.3f}"

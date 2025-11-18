@@ -8,6 +8,7 @@ import time
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 import requests
@@ -164,11 +165,18 @@ class BinanceArchiveLoader:
             logger.error(f"Network error for {date.date()}: {e}")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error for {date.date()}: {e}", exc_info=True)
+            # Only log full stack trace in DEBUG mode to avoid exposing internals
+            logger.error(
+                f"Unexpected error for {date.date()}: {e}",
+                exc_info=(logger.level == logging.DEBUG)
+            )
             return None
 
     def download_range(
-        self, start_date: str, end_date: str, progress_callback=None
+        self,
+        start_date: str,
+        end_date: str,
+        progress_callback: Callable[[int, int, str, str], None] | None = None,
     ) -> pd.DataFrame:
         """Download data for date range with rate limiting.
 

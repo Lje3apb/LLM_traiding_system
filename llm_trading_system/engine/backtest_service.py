@@ -48,11 +48,15 @@ def run_backtest_from_config_dict(
         FileNotFoundError: If data file doesn't exist
         ValueError: If configuration is invalid
     """
-    # Set defaults
-    if llm_model is None:
-        llm_model = "llama3.2"
-    if llm_url is None:
-        llm_url = "http://localhost:11434"
+    # Set defaults from AppConfig (provides consistency with Settings UI)
+    if llm_model is None or llm_url is None:
+        from llm_trading_system.config import load_config
+
+        cfg = load_config()
+        if llm_model is None:
+            llm_model = cfg.llm.default_model
+        if llm_url is None:
+            llm_url = cfg.llm.ollama_base_url
 
     # Get symbol from config
     symbol = config.get("symbol", "BTCUSDT")

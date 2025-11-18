@@ -146,8 +146,13 @@ class DataManager:
             # Check coverage (allowing some tolerance for intraday data)
             return file_start <= req_start and file_end >= req_end
 
-        except Exception as e:
+        except (IOError, OSError, ValueError, KeyError) as e:
+            # File I/O errors, parsing errors, or missing columns
             logger.error(f"Error checking data coverage: {e}")
+            return False
+        except pd.errors.ParserError as e:
+            # Pandas CSV parsing errors
+            logger.error(f"CSV parsing error checking data coverage: {e}")
             return False
 
     def _get_file_row_count(self, filepath: Path) -> int:

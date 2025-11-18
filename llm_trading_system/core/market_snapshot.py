@@ -141,6 +141,14 @@ def fetch_binance_market_data(settings: Settings, symbol: str) -> Dict[str, Opti
     except requests.RequestException as exc:
         logging.error("Failed to fetch Binance orderbook: %s", exc)
 
+    # Validate that at least critical data was fetched
+    if spot_price is None:
+        raise RuntimeError(
+            "Failed to fetch critical market data from Binance. "
+            "Spot price is required but all API calls failed. "
+            "Check network connection and Binance API status."
+        )
+
     return {
         "spot_price": spot_price,
         "change_24h_pct": change_pct,

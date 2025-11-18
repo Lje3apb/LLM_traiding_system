@@ -90,6 +90,11 @@ class Strategy(ABC):
     """Abstract base class for trading strategies."""
 
     def __init__(self, symbol: str) -> None:
+        """Initialize strategy.
+
+        Args:
+            symbol: Trading symbol (e.g., "BTCUSDT")
+        """
         self.symbol = symbol
 
     @abstractmethod

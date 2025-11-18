@@ -1,7 +1,7 @@
 """Exchange configuration and client factory.
 
 This module provides utilities for reading exchange configuration from
-environment variables and creating appropriate exchange clients.
+AppConfig with optional environment variable overrides.
 """
 
 from __future__ import annotations
@@ -12,50 +12,83 @@ from typing import Literal
 from llm_trading_system.exchange.base import ExchangeClient, ExchangeConfig
 
 
-def get_exchange_config_from_env() -> ExchangeConfig:
-    """Load exchange configuration from environment variables.
+def _parse_bool(value: str | None, default: bool) -> bool:
+    """Parse boolean from string."""
+    if value is None:
+        return default
+    return value.lower() in ("true", "1", "yes")
 
-    Environment Variables:
+
+def get_exchange_config_from_env() -> ExchangeConfig:
+    """Load exchange configuration from AppConfig with environment variable overrides.
+
+    Priority (highest to lowest):
+        1. Environment variables (BINANCE_* for specific overrides)
+        2. AppConfig (config.json - set via Settings UI)
+        3. Hard-coded defaults (fallback)
+
+    Environment Variables (all optional - override AppConfig):
         EXCHANGE_TYPE: Exchange type ("binance" or "paper")
-        BINANCE_API_KEY: Binance API key (required for live trading)
-        BINANCE_API_SECRET: Binance API secret (required for live trading)
-        BINANCE_BASE_URL: Binance API base URL (default: https://fapi.binance.com)
-        BINANCE_TESTNET: Use testnet mode (default: true)
-        BINANCE_TRADING_SYMBOL: Symbol to trade (default: BTC/USDT)
-        BINANCE_LEVERAGE: Leverage for futures trading (default: 1)
-        BINANCE_MIN_NOTIONAL: Minimum notional value in USDT (default: 10.0)
-        BINANCE_TIMEOUT: API timeout in seconds (default: 30)
-        BINANCE_ENABLE_RATE_LIMIT: Enable rate limiting (default: true)
+        BINANCE_API_KEY: Binance API key
+        BINANCE_API_SECRET: Binance API secret
+        BINANCE_BASE_URL: Binance API base URL
+        BINANCE_TESTNET: Use testnet mode
+        BINANCE_TRADING_SYMBOL: Symbol to trade
+        BINANCE_LEVERAGE: Leverage for futures trading
+        BINANCE_MIN_NOTIONAL: Minimum notional value in USDT
+        BINANCE_TIMEOUT: API timeout in seconds
+        BINANCE_ENABLE_RATE_LIMIT: Enable rate limiting
 
     Returns:
-        ExchangeConfig populated from environment
+        ExchangeConfig populated from AppConfig + env overrides
 
     Example:
-        >>> import os
-        >>> os.environ["EXCHANGE_TYPE"] = "paper"
+        >>> # Without env vars, uses AppConfig from Settings UI
         >>> config = get_exchange_config_from_env()
-        >>> print(config.trading_symbol)
-        BTC/USDT
+        >>> print(config.trading_symbol)  # From config.json
+        BTCUSDT
+
+        >>> # With env var override
+        >>> os.environ["BINANCE_TESTNET"] = "false"
+        >>> config = get_exchange_config_from_env()
+        >>> print(config.testnet)  # From env var
+        False
     """
+    from llm_trading_system.config import load_config
+
+    # Load AppConfig as baseline
+    cfg = load_config()
+
+    # Build config with env overrides (env vars take precedence over AppConfig)
     return ExchangeConfig(
-        api_key=os.getenv("BINANCE_API_KEY", ""),
-        api_secret=os.getenv("BINANCE_API_SECRET", ""),
-        base_url=os.getenv("BINANCE_BASE_URL", "https://fapi.binance.com"),
-        testnet=os.getenv("BINANCE_TESTNET", "true").lower() in ("true", "1", "yes"),
-        trading_symbol=os.getenv("BINANCE_TRADING_SYMBOL", "BTC/USDT"),
-        leverage=int(os.getenv("BINANCE_LEVERAGE", "1")),
-        min_notional=float(os.getenv("BINANCE_MIN_NOTIONAL", "10.0")),
-        timeout=int(os.getenv("BINANCE_TIMEOUT", "30")),
-        enable_rate_limit=os.getenv("BINANCE_ENABLE_RATE_LIMIT", "true").lower()
-        in ("true", "1", "yes"),
+        api_key=os.getenv("BINANCE_API_KEY") or cfg.exchange.api_key,
+        api_secret=os.getenv("BINANCE_API_SECRET") or cfg.exchange.api_secret,
+        base_url=os.getenv("BINANCE_BASE_URL", "https://fapi.binance.com"),  # Hard-coded default
+        testnet=(
+            _parse_bool(os.getenv("BINANCE_TESTNET"), cfg.exchange.use_testnet)
+            if "BINANCE_TESTNET" in os.environ
+            else cfg.exchange.use_testnet
+        ),
+        trading_symbol=os.getenv("BINANCE_TRADING_SYMBOL") or cfg.exchange.default_symbol,
+        leverage=int(os.getenv("BINANCE_LEVERAGE", "1")),  # Not in AppConfig yet
+        min_notional=float(os.getenv("BINANCE_MIN_NOTIONAL", "10.0")),  # Not in AppConfig yet
+        timeout=int(os.getenv("BINANCE_TIMEOUT", "30")),  # Not in AppConfig yet
+        enable_rate_limit=_parse_bool(
+            os.getenv("BINANCE_ENABLE_RATE_LIMIT"), True  # Default to True
+        ),
     )
 
 
 def get_exchange_type_from_env() -> Literal["binance", "paper"]:
-    """Get the exchange type from environment.
+    """Get the exchange type from environment or AppConfig.
 
-    Environment Variables:
-        EXCHANGE_TYPE: "binance" for live trading, "paper" for simulation (default: paper)
+    Priority:
+        1. EXCHANGE_TYPE environment variable (if set)
+        2. AppConfig cfg.exchange.exchange_type
+        3. Default: "paper"
+
+    Environment Variables (optional):
+        EXCHANGE_TYPE: "binance" for live trading, "paper" for simulation
 
     Returns:
         Exchange type string
@@ -65,12 +98,25 @@ def get_exchange_type_from_env() -> Literal["binance", "paper"]:
         >>> os.environ["EXCHANGE_TYPE"] = "binance"
         >>> get_exchange_type_from_env()
         'binance'
+
+        >>> # Without env var, uses AppConfig
+        >>> del os.environ["EXCHANGE_TYPE"]
+        >>> get_exchange_type_from_env()  # Uses config.json
+        'paper'
     """
-    exchange_type = os.getenv("EXCHANGE_TYPE", "paper").lower()
+    from llm_trading_system.config import load_config
+
+    # Check env var first (for backward compatibility and overrides)
+    if "EXCHANGE_TYPE" in os.environ:
+        exchange_type = os.getenv("EXCHANGE_TYPE", "paper").lower()
+    else:
+        # Use AppConfig
+        cfg = load_config()
+        exchange_type = cfg.exchange.exchange_type.lower()
 
     if exchange_type not in ("binance", "paper"):
         raise ValueError(
-            f"Invalid EXCHANGE_TYPE: {exchange_type}. Must be 'binance' or 'paper'."
+            f"Invalid exchange_type: {exchange_type}. Must be 'binance' or 'paper'."
         )
 
     return exchange_type  # type: ignore

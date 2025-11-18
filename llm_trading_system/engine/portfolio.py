@@ -48,6 +48,7 @@ class PortfolioSimulator:
     _highest_equity_in_position: float = 0.0  # Track peak for trailing stop
 
     def __post_init__(self) -> None:
+        """Initialize entry equity tracking after dataclass init."""
         self._entry_equity = self.account.equity
         # Thread safety: Lock protects all state modifications (Issue #3 fix)
         # Prevents race conditions when accessed from multiple threads

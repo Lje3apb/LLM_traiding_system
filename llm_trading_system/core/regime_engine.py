@@ -82,12 +82,23 @@ def validate_llm_output(llm_output: Dict[str, Any]) -> None:
 
 def evaluate_regime_and_size(
     snapshot: dict,
-    client,
+    client: Any,
     base_size: float = 0.01,
     k_max: float = 2.0,
     temperature: float = 0.1,
 ) -> dict:
-    """Run the full LLM + sizing pipeline and return consolidated results."""
+    """Run the full LLM + sizing pipeline and return consolidated results.
+
+    Args:
+        snapshot: Market snapshot data dictionary
+        client: LLM client with complete() method
+        base_size: Base position size (default: 0.01)
+        k_max: Maximum position multiplier (default: 2.0)
+        temperature: LLM sampling temperature (default: 0.1)
+
+    Returns:
+        dict: Consolidated results with regime analysis and position sizing
+    """
 
     system_prompt = build_system_prompt()
     user_prompt = build_user_prompt(

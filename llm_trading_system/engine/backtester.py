@@ -33,6 +33,16 @@ class Backtester:
         slippage_bps: float = 1.0,
         symbol: str = "BTCUSDT",
     ) -> None:
+        """Initialize backtester.
+
+        Args:
+            strategy: Trading strategy to backtest
+            data_feed: Historical data feed providing OHLCV bars
+            initial_equity: Starting account balance
+            fee_rate: Trading fee rate (default: 0.05%)
+            slippage_bps: Slippage in basis points (default: 1.0 bps)
+            symbol: Trading symbol (default: BTCUSDT)
+        """
         self.strategy = strategy
         self.data_feed = data_feed
         self.initial_equity = initial_equity
@@ -107,10 +117,26 @@ if __name__ == "__main__":
     from tempfile import TemporaryDirectory
 
     class FlatStrategy(Strategy):
+        """Test helper strategy that never trades (always returns None)."""
+
         def __init__(self, symbol: str) -> None:
+            """Initialize flat strategy.
+
+            Args:
+                symbol: Trading symbol
+            """
             super().__init__(symbol)
 
-        def on_bar(self, bar: Bar, account: AccountState):
+        def on_bar(self, bar: Bar, account: AccountState) -> Order | None:
+            """Always return None (no trading).
+
+            Args:
+                bar: Current OHLCV bar
+                account: Current account state
+
+            Returns:
+                Always None
+            """
             return None
 
     strategy = FlatStrategy(symbol="BTCUSDT")

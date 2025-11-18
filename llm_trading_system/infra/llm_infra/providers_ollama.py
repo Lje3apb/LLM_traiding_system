@@ -117,17 +117,29 @@ class OllamaProvider:
             return response.json()
 
         except requests.exceptions.Timeout as exc:
-            logger.error("Timeout calling Ollama API at %s", self.base_url, exc_info=True)
+            logger.error(
+                "Timeout calling Ollama API at %s", self.base_url,
+                exc_info=(logger.level == logging.DEBUG)
+            )
             raise
         except requests.exceptions.ConnectionError as exc:
-            logger.error("Connection error calling Ollama API at %s", self.base_url, exc_info=True)
+            logger.error(
+                "Connection error calling Ollama API at %s", self.base_url,
+                exc_info=(logger.level == logging.DEBUG)
+            )
             raise
         except requests.exceptions.HTTPError as exc:
             status_code = exc.response.status_code if exc.response else 'unknown'
-            logger.error("HTTP %s from Ollama API at %s", status_code, self.base_url, exc_info=True)
+            logger.error(
+                "HTTP %s from Ollama API at %s", status_code, self.base_url,
+                exc_info=(logger.level == logging.DEBUG)
+            )
             raise
         except ValueError as exc:
-            logger.error("Invalid JSON response from Ollama API at %s", self.base_url, exc_info=True)
+            logger.error(
+                "Invalid JSON response from Ollama API at %s", self.base_url,
+                exc_info=(logger.level == logging.DEBUG)
+            )
             raise
 
 
