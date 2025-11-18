@@ -122,6 +122,47 @@ class RiskConfig(BaseModel):
         description="Base multiplier for neutral regime"
     )
 
+    # Stop Loss / Take Profit (Issue #4 fix)
+    stop_loss_pct: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=1.0,
+        description="Stop loss percentage (0.05 = 5% loss triggers exit)"
+    )
+    take_profit_pct: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=10.0,
+        description="Take profit percentage (0.10 = 10% profit triggers exit)"
+    )
+    trailing_stop_pct: float = Field(
+        default=0.03,
+        ge=0.0,
+        le=1.0,
+        description="Trailing stop percentage (0.03 = 3% from peak)"
+    )
+    max_position_hold_minutes: int = Field(
+        default=1440,  # 24 hours
+        ge=0,
+        description="Maximum time to hold a position in minutes (0 = unlimited)"
+    )
+    enable_stop_loss: bool = Field(
+        default=True,
+        description="Enable automatic stop loss"
+    )
+    enable_take_profit: bool = Field(
+        default=True,
+        description="Enable automatic take profit"
+    )
+    enable_trailing_stop: bool = Field(
+        default=False,
+        description="Enable trailing stop (follows profit upward)"
+    )
+    enable_time_exit: bool = Field(
+        default=False,
+        description="Enable time-based position exit"
+    )
+
 
 class ExchangeConfig(BaseModel):
     """Exchange connection and live trading configuration."""
