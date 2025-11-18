@@ -164,6 +164,7 @@ class LiveSession:
         self.last_state: SessionState = self._build_initial_state()
         self.start_time: datetime | None = None
         self.error_message: str | None = None
+        self.state_sync_error: bool = False  # Flag for state synchronization errors
 
         # Thread for running engine
         self._thread: threading.Thread | None = None
@@ -425,7 +426,13 @@ class LiveSession:
             )
 
         except Exception as e:
-            logger.error(f"Failed to update last_state: {e}", exc_info=True)
+            # Only log full stack trace in DEBUG mode to avoid exposing internals
+            logger.error(
+                f"Failed to update last_state: {e}",
+                exc_info=(logger.level == logging.DEBUG)
+            )
+            # Set error flag for monitoring
+            self.state_sync_error = True
 
     def _get_position_snapshot(self) -> PositionSnapshot | None:
         """Get current position snapshot."""

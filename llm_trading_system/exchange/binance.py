@@ -6,6 +6,7 @@ Supports both testnet and mainnet, with configurable leverage and order types.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -26,6 +27,8 @@ from llm_trading_system.exchange.base import (
     PositionInfo,
 )
 from llm_trading_system.strategies.base import Bar
+
+logger = logging.getLogger(__name__)
 
 
 class BinanceFuturesClient:
@@ -58,15 +61,23 @@ class BinanceFuturesClient:
             )
 
         # Initialize CCXT Binance futures exchange
+        # SECURITY WARNING: This dict contains API credentials - NEVER log or print it!
+        # Logging exchange_options will expose apiKey and secret in plaintext
         exchange_options: dict[str, Any] = {
-            "apiKey": config.api_key,
-            "secret": config.api_secret,
+            "apiKey": config.api_key,        # SENSITIVE - DO NOT LOG
+            "secret": config.api_secret,     # SENSITIVE - DO NOT LOG
             "enableRateLimit": config.enable_rate_limit,
             "timeout": config.timeout * 1000,  # ccxt uses milliseconds
             "options": {
                 "defaultType": "future",  # Use USDT-M futures
             },
         }
+
+        # Log only safe configuration (without credentials)
+        logger.debug(
+            f"Initializing Binance client: testnet={config.testnet}, "
+            f"leverage={config.leverage}, symbol={config.trading_symbol}"
+        )
 
         # Configure testnet if enabled
         if config.testnet:
@@ -145,8 +156,22 @@ class BinanceFuturesClient:
                 positions=positions,
                 timestamp=datetime.now(timezone.utc),
             )
+        except ccxt.AuthenticationError as e:
+            raise RuntimeError(
+                f"Authentication failed. Check API keys and permissions. "
+                f"Ensure keys have Futures trading enabled. Error: {e}"
+            )
+        except ccxt.NetworkError as e:
+            raise RuntimeError(
+                f"Network error connecting to Binance. Check internet connection. Error: {e}"
+            )
+        except ccxt.ExchangeError as e:
+            raise RuntimeError(
+                f"Binance API error. The exchange may be experiencing issues. Error: {e}"
+            )
         except Exception as e:
-            raise RuntimeError(f"Failed to fetch account info: {e}")
+            # Catch-all for unexpected errors
+            raise RuntimeError(f"Unexpected error fetching account info: {e}")
 
     def get_open_positions(self) -> list[PositionInfo]:
         """Get all open positions.

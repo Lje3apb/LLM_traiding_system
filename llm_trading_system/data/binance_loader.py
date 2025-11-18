@@ -164,7 +164,11 @@ class BinanceArchiveLoader:
             logger.error(f"Network error for {date.date()}: {e}")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error for {date.date()}: {e}", exc_info=True)
+            # Only log full stack trace in DEBUG mode to avoid exposing internals
+            logger.error(
+                f"Unexpected error for {date.date()}: {e}",
+                exc_info=(logger.level == logging.DEBUG)
+            )
             return None
 
     def download_range(

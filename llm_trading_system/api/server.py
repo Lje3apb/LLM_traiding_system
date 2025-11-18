@@ -559,8 +559,22 @@ async def live_session_websocket(websocket: WebSocket, session_id: str) -> None:
 
         # Keep connection alive and send updates periodically
         import asyncio
+        import time
+
+        # Connection timeout: 1 hour maximum
+        MAX_CONNECTION_TIME = 3600  # seconds
+        connection_start = time.time()
 
         while True:
+            # Check connection age
+            connection_age = time.time() - connection_start
+            if connection_age > MAX_CONNECTION_TIME:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "Connection timeout - maximum session duration (1 hour) exceeded. Please reconnect."
+                })
+                break
+
             # Check if client sent any messages (for keepalive/ping)
             try:
                 message = await asyncio.wait_for(
@@ -675,8 +689,8 @@ async def ui_index(request: Request) -> HTMLResponse:
                     'symbol': config.get('symbol', 'BTCUSDT'),
                 })
             except Exception as e:
-                # If config fails to load, log error and show as Error type
-                logger.warning(f"Failed to load strategy config '{name}': {e}")
+                # If config fails to load, log as ERROR (corrupted config is serious)
+                logger.error(f"Invalid/corrupted strategy config '{name}': {e}. Skipping.")
                 strategies.append({
                     'name': name,
                     'type': 'Error',  # More obvious than 'Unknown'
@@ -1375,6 +1389,7 @@ async def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
 
 @app.post("/ui/settings")
 async def save_settings(
+    request: Request,
     # LLM settings
     llm_provider: str = Form(...),
     default_model: str = Form(...),
@@ -1429,7 +1444,21 @@ async def save_settings(
         Redirect to settings page with saved=1 query parameter
     """
     try:
+        import os
         from llm_trading_system.config.service import load_config, save_config
+
+        # SECURITY: Check for HTTPS when submitting API keys in production
+        # Allow HTTP only in development (ENV != production)
+        is_production = os.getenv("ENV", "").lower() == "production"
+        has_sensitive_data = bool(openai_api_key or exchange_api_key or exchange_api_secret or
+                                  newsapi_key or cryptopanic_api_key)
+
+        if is_production and has_sensitive_data and request.url.scheme != "https":
+            raise HTTPException(
+                status_code=400,
+                detail="API keys can only be submitted over HTTPS in production. "
+                       "Configure reverse proxy (nginx/traefik) with SSL certificate."
+            )
 
         # Load current config
         cfg = load_config()
