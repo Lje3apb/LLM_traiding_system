@@ -92,6 +92,12 @@ python3 test_full_cycle.py --model llama3.2
 python3 test_full_cycle.py --model gpt-oss:20b
 ```
 
+### Тест с облачной моделью (наилучшее качество)
+
+```bash
+python3 test_full_cycle.py --model deepseek-v3.1:671b-cloud
+```
+
 ### Полный тест с реальными данными
 
 ```bash
