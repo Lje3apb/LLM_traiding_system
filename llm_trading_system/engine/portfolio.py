@@ -43,6 +43,7 @@ class PortfolioSimulator:
     _is_bankrupt: bool = False
 
     def __post_init__(self) -> None:
+        """Initialize entry equity tracking after dataclass init."""
         self._entry_equity = self.account.equity
 
     def process_order(self, order: Order, bar: Bar) -> None:

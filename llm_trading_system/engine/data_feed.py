@@ -14,6 +14,11 @@ class HistoricalDataFeed(Protocol):
     """Protocol returning an iterator of historical bars."""
 
     def iter(self) -> Iterator[Bar]:  # pragma: no cover - interface only
+        """Return iterator over historical OHLCV bars.
+
+        Yields:
+            Bar: Historical OHLCV bar
+        """
         ...
 
 
@@ -26,6 +31,14 @@ class CSVDataFeed:
     tzinfo: datetime.tzinfo | None = None
 
     def iter(self) -> Iterator[Bar]:
+        """Read CSV file and yield OHLCV bars.
+
+        Yields:
+            Bar: Parsed OHLCV bar from CSV row
+
+        Raises:
+            ValueError: If CSV is missing required columns
+        """
         path = Path(self.path)
         with path.open("r", encoding="utf-8") as fh:
             header = fh.readline().strip().split(",")

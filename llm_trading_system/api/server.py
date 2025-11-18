@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -1229,8 +1229,12 @@ async def ui_download_data(
     from datetime import datetime, timedelta
     import pandas as pd
 
-    async def generate_progress():
-        """Generate progress updates as JSON lines."""
+    async def generate_progress() -> AsyncIterator[str]:
+        """Generate progress updates as JSON lines.
+
+        Yields:
+            str: Newline-delimited JSON progress update
+        """
         try:
             # Validate dates
             try:

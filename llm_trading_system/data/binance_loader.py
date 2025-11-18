@@ -8,6 +8,7 @@ import time
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 import requests
@@ -172,7 +173,10 @@ class BinanceArchiveLoader:
             return None
 
     def download_range(
-        self, start_date: str, end_date: str, progress_callback=None
+        self,
+        start_date: str,
+        end_date: str,
+        progress_callback: Callable[[int, int, str, str], None] | None = None,
     ) -> pd.DataFrame:
         """Download data for date range with rate limiting.
 
