@@ -9,6 +9,7 @@
 </div>
 
 <form method="POST" action="/ui/strategies/{{ name }}/backtest" class="strategy-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="form-section">
         <h3>Data Download from Binance</h3>
         <p class="help-text">Automatically download historical OHLCV data from Binance archive</p>
@@ -243,6 +244,7 @@ document.addEventListener('DOMContentLoaded', function() {
             formData.append('interval', interval);
             formData.append('start_date', startDate);
             formData.append('end_date', endDate);
+            formData.append('csrf_token', '{{ csrf_token }}');
 
             // Make streaming request
             const response = await fetch('/ui/strategies/{{ name }}/download_data', {
