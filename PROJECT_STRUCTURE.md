@@ -6,9 +6,92 @@
 
 ---
 
-## Недавние изменения (АГРЕССИВНЫЙ РЕЖИМ)
+## Недавние изменения
 
-### Ноябрь 2025 - Версия 0.2.0
+### Ноябрь 2025 - Версия 0.3.0 (LIVE TRADING + UNIFIED UI)
+
+**Главная новинка: Полнофункциональный Live Trading с объединенным интерфейсом Paper/Real**
+
+1. **Exchange Integration** (`llm_trading_system/exchange/`):
+   - ✅ `ExchangeClient` - абстракция работы с биржами
+   - ✅ `BinanceFuturesClient` - Binance Futures USDT-M интеграция
+   - ✅ `PaperTradingClient` - симулятор биржи для тестирования
+   - ✅ Поддержка market/limit ордеров, позиций, баланса, leverage
+
+2. **Live Trading Engine** (`llm_trading_system/engine/`):
+   - ✅ `LiveTradingEngine` - real-time execution движок
+   - ✅ `LiveSessionManager` - управление торговыми сессиями
+   - ✅ `LiveSession` - отдельная сессия с state tracking
+   - ✅ WebSocket поддержка для real-time updates (bar, trade, state_update)
+   - ✅ REST API endpoints для CRUD операций с сессиями
+
+3. **Unified Live Trading UI** (`llm_trading_system/api/templates/live_trading.html`):
+   - ✅ **Session Summary блок**:
+     * Название стратегии, symbol, timeframe, session ID
+     * Running time с live таймером (HH:MM:SS)
+     * Total trades, return %, win rate
+     * Mode badge (Paper/Real) с визуальной индикацией
+   - ✅ **Activity Log** - терминальная консоль:
+     * Real-time event logging (создание/старт/стоп, сделки, ошибки)
+     * Color-coded messages (info/success/error/warning/trade)
+     * Auto-scrolling с 100-entry limit
+   - ✅ **Responsive Grid Layout**:
+     * Desktop (≥1200px): control panel + status слева, chart справа
+     * Mobile (<768px): single column stack layout
+     * Horizontally scrollable trades table
+   - ✅ **URL Parameter Prefilling**:
+     * Pre-fills strategy, symbol, timeframe, mode, deposit from query params
+     * Seamless navigation from backtest results and strategy list
+
+4. **Enhanced UI/UX across all pages**:
+   - ✅ **Backtest Results** (`backtest_result.html`):
+     * "Next Actions" panel с кнопками:
+       - "Repeat Backtest" - повтор бэктеста
+       - "Go Live (Paper Test)" - переход на live с paper mode + final equity
+       - "Go Live (Real Trading)" - переход на live с real mode
+   - ✅ **Strategy List** (`index.html`):
+     * Расширенная таблица вместо карточек
+     * Колонки: Name, Type (Indicator/LLM Only/Hybrid), Symbol, Actions
+     * Type badges с цветовой кодировкой
+     * Кнопки: Edit, Backtest, Live (Paper), Live (Real), Delete
+     * Все Live кнопки pre-fill параметры для quick session start
+   - ✅ **Strategy Form** (`strategy_form.html`):
+     * Контекстные подсказки для live trading usage
+     * Объяснение initial_deposit (Paper vs Real mode)
+     * Объяснение LLM regime-based position sizing
+
+5. **JavaScript Enhancements** (`live_trading.js`):
+   - ✅ Session summary management с real-time metric calculation
+   - ✅ Running duration timer с HH:MM:SS display
+   - ✅ Activity log system с type-based styling
+   - ✅ URL parameter parsing и form prefilling
+   - ✅ Enhanced event logging для all user actions
+   - ✅ Trade execution logging с quantity, price, P&L
+
+6. **Backend Updates** (`server.py`):
+   - ✅ Strategy type detection (Indicator/LLM Only/Hybrid)
+   - ✅ Enhanced ui_index route с strategy configs loading
+   - ✅ live_enabled flag для conditional button display
+   - ✅ Improved error handling
+
+7. **UI Integration Tests** (`tests/test_ui_live_integration.py`):
+   - ✅ 6 новых тестов для Live Trading UI
+   - ✅ Test live page elements (mode switcher, buttons, chart, tables)
+   - ✅ Test URL parameter prefilling
+   - ✅ Test index page Live Trading links
+   - ✅ Test backtest result "Next Actions" panel
+   - ✅ Test strategy form live trading hints
+   - ✅ Test responsive layout classes
+
+**Workflow улучшения**:
+- Seamless flow: Strategy Creation → Backtest → Live Testing (Paper) → Live Trading (Real)
+- Real-time session monitoring with comprehensive metrics
+- Activity logging для debugging и audit trail
+- Mobile-responsive design для on-the-go monitoring
+
+---
+
+### Ноябрь 2025 - Версия 0.2.0 (АГРЕССИВНЫЙ РЕЖИМ)
 
 **Основные улучшения**:
 
@@ -33,7 +116,7 @@
    - ✅ FULL_CYCLE_TEST.md: подробное описание агрессивного режима
    - ✅ PROJECT_STRUCTURE.md: отражает все изменения (этот файл)
 
-5. **UI баги исправлены** (не документировано в этой структуре):
+5. **UI баги исправлены**:
    - ✅ bb_std → bb_mult field name fix
    - ✅ Trades table date display bug (Unix timestamps)
    - ✅ JavaScript chart zoom bug (setVisibleLogicalRange)
@@ -63,6 +146,11 @@
 │   │       ├── retry.py             # Политики повторных попыток с экспоненциальной задержкой
 │   │       ├── compressor.py        # Утилиты сжатия промптов
 │   │       └── router.py            # Маршрутизация между несколькими провайдерами
+│   ├── exchange/                    # 🆕 Exchange integration layer
+│   │   ├── __init__.py
+│   │   ├── base.py                  # Абстрактный ExchangeClient интерфейс
+│   │   ├── binance_futures.py       # Binance Futures USDT-M client
+│   │   └── paper_trading.py         # Paper trading симулятор для тестирования
 │   ├── data/                        # Модуль загрузки и управления данными
 │   │   ├── __init__.py
 │   │   ├── binance_loader.py        # Загрузка OHLCV данных с Binance archive
@@ -81,20 +169,25 @@
 │   │   ├── backtester.py            # Движок исторического бэктестинга
 │   │   ├── backtest_service.py      # Сервисный слой для бэктестов
 │   │   ├── portfolio.py             # Симуляция портфеля и исполнение сделок
-│   │   └── data_feed.py             # Исторический фид данных (поддержка CSV)
+│   │   ├── data_feed.py             # Исторический фид данных (поддержка CSV)
+│   │   ├── live_trading.py          # 🆕 LiveTradingEngine для real-time execution
+│   │   └── live_service.py          # 🆕 LiveSessionManager с WebSocket и REST API
 │   ├── api/                         # Web UI и REST API
 │   │   ├── __init__.py
-│   │   ├── server.py                # FastAPI сервер с REST API и Web UI
+│   │   ├── server.py                # FastAPI сервер с REST API и Web UI (updated)
 │   │   ├── templates/               # Jinja2 шаблоны HTML
-│   │   │   ├── base.html            # Базовый шаблон
-│   │   │   ├── index.html           # Главная страница
-│   │   │   ├── strategy_form.html   # Форма создания/редактирования стратегии
+│   │   │   ├── base.html            # Базовый шаблон с навигацией
+│   │   │   ├── index.html           # 🔄 Главная страница (расширенная таблица)
+│   │   │   ├── strategy_form.html   # 🔄 Форма стратегии (с live hints)
 │   │   │   ├── backtest_form.html   # Форма запуска бэктеста
-│   │   │   └── backtest_result.html # Результаты бэктеста
+│   │   │   ├── backtest_result.html # 🔄 Результаты (с Next Actions panel)
+│   │   │   └── live_trading.html    # 🆕 Unified Live Trading UI (paper + real)
 │   │   └── static/                  # Статические файлы (CSS, JS)
+│   │       └── live_trading.js      # 🆕 JavaScript для Live Trading UI
 │   └── cli/                         # Инструменты командной строки
 │       ├── __init__.py
 │       ├── full_cycle_cli.py        # CLI полного интеграционного теста
+│       ├── live_cli.py              # 🆕 CLI для live/paper trading с LLM
 │       ├── quick_test_ollama.py     # Быстрый тест подключения к Ollama
 │       └── check_dependencies.py    # Проверка зависимостей
 ├── data/                            # Директория для CSV файлов с данными
@@ -110,7 +203,13 @@
 │   ├── test_full_cycle.py           # Полный интеграционный тест
 │   ├── test_ollama.py               # Тесты провайдера Ollama
 │   ├── test_onchain_apis.py         # Тесты on-chain API
-│   └── test_fetch_onchain.py        # Тесты получения on-chain данных
+│   ├── test_fetch_onchain.py        # Тесты получения on-chain данных
+│   ├── test_ui_smoke.py             # Smoke тесты Web UI
+│   ├── test_ui_live_integration.py  # 🆕 UI integration тесты для Live Trading
+│   ├── test_exchange_paper.py       # 🆕 Тесты paper trading client
+│   ├── test_live_trading_engine.py  # 🆕 Тесты LiveTradingEngine
+│   ├── test_live_api.py             # 🆕 Тесты REST API для live sessions
+│   └── test_llm_regime_wrapped.py   # 🆕 Тесты LLM regime wrapped strategy
 ├── setup.py                         # Установка и настройка пакета
 ├── requirements.txt                 # Python зависимости
 ├── Dockerfile                       # Определение Docker контейнера
@@ -367,15 +466,91 @@
 
 ---
 
-### 6. Web UI и API (`llm_trading_system/api/`)
+### 6. Exchange Integration (`llm_trading_system/exchange/`)
+
+#### **base.py**
+- **Назначение**: Абстрактный интерфейс для работы с биржами
+- **Класс**: `ExchangeClient` (Protocol)
+- **Методы**:
+  - `get_balance()`: Получение баланса
+  - `get_position()`: Текущая позиция
+  - `create_order()`: Создание рыночного/лимитного ордера
+  - `cancel_order()`: Отмена ордера
+  - `get_order_status()`: Статус ордера
+  - `get_current_price()`: Текущая рыночная цена
+
+#### **binance_futures.py**
+- **Назначение**: Интеграция с Binance Futures USDT-M
+- **Класс**: `BinanceFuturesClient`
+- **Функции**:
+  - Реальное исполнение ордеров на Binance
+  - Управление позициями (long/short)
+  - Установка leverage (1x-125x)
+  - Получение реального баланса и P&L
+  - Поддержка market и limit ордеров
+- **Безопасность**: Требует EXCHANGE_LIVE_ENABLED=true для работы
+
+#### **paper_trading.py**
+- **Назначение**: Симулятор биржи для безопасного тестирования
+- **Класс**: `PaperTradingClient`
+- **Функции**:
+  - Симуляция баланса и позиций
+  - Виртуальное исполнение ордеров
+  - Реалистичные комиссии и проскальзывание
+  - Нет реальных денежных рисков
+  - Идентичный API для seamless переключения
+
+---
+
+### 7. Live Trading Engine (`llm_trading_system/engine/`)
+
+#### **live_trading.py**
+- **Назначение**: Real-time торговый движок для live исполнения
+- **Класс**: `LiveTradingEngine`
+- **Ключевые функции**:
+  - `start()`: Запуск торгового цикла
+  - `stop()`: Остановка торговли
+  - `on_bar()`: Обработка нового бара с вызовом стратегии
+  - `execute_order()`: Исполнение ордеров через ExchangeClient
+- **Функции**:
+  - Polling новых баров с заданным интервалом
+  - Вызов стратегии для принятия решений
+  - Исполнение ордеров через exchange client
+  - Отслеживание позиций и P&L в реальном времени
+  - Thread-safe операции
+
+#### **live_service.py**
+- **Назначение**: Управление несколькими торговыми сессиями
+- **Классы**:
+  - `LiveSessionConfig`: Конфигурация сессии (mode, symbol, strategy, etc.)
+  - `LiveSession`: Отдельная торговая сессия с состоянием
+  - `LiveSessionManager`: Singleton для управления всеми сессиями
+- **Функции LiveSessionManager**:
+  - `create_session()`: Создание новой сессии (paper или real)
+  - `start_session()`: Запуск торговли
+  - `stop_session()`: Остановка торговли
+  - `get_status()`: Получение статуса сессии
+  - `list_status()`: Список всех сессий
+  - `get_trades()`: История сделок
+  - `get_recent_bars()`: Последние бары
+  - `get_account_snapshot()`: Snapshot баланса и позиций
+- **WebSocket Support**:
+  - Real-time updates: `state_update`, `trade`, `bar`
+  - Автоматическое broadcast новых событий
+  - Connection management
+- **State Caching**: Кэширование last_state для быстрого доступа
+
+---
+
+### 8. Web UI и API (`llm_trading_system/api/`)
 
 #### **server.py**
 - **Назначение**: FastAPI сервер с REST API и Web UI
 - **Технологии**: FastAPI, Jinja2, uvicorn
-- **API Endpoints**:
+- **API Endpoints (Backtest)**:
   - `GET /health`: Проверка здоровья сервера
   - `POST /backtest`: Запуск бэктеста (JSON API)
-  - `GET /ui/`: Главная страница Web UI
+  - `GET /ui/`: Главная страница Web UI (с strategy type detection)
   - `GET /ui/strategies/new`: Форма создания стратегии
   - `POST /ui/strategies/{name}/save`: Сохранение стратегии
   - `GET /ui/strategies/{name}/edit`: Редактирование стратегии
@@ -383,33 +558,127 @@
   - `POST /ui/strategies/{name}/backtest`: Запуск бэктеста через UI
   - `POST /ui/strategies/{name}/download_data`: Загрузка данных (streaming)
   - `GET /ui/data/files`: Список доступных CSV файлов
+- **API Endpoints (Live Trading)** 🆕:
+  - `GET /ui/live`: Live Trading страница (unified paper + real UI)
+  - `POST /api/live/sessions`: Создание live сессии
+  - `POST /api/live/sessions/{id}/start`: Запуск торговли
+  - `POST /api/live/sessions/{id}/stop`: Остановка торговли
+  - `GET /api/live/sessions/{id}`: Получение статуса сессии
+  - `GET /api/live/sessions`: Список всех сессий
+  - `GET /api/live/sessions/{id}/trades`: История сделок
+  - `GET /api/live/sessions/{id}/bars`: Последние бары
+  - `GET /api/live/sessions/{id}/account`: Account snapshot
+  - `WS /ws/live/{id}`: WebSocket для real-time updates
 - **Функции**:
   - CRUD операции для стратегий
+  - Strategy type detection (Indicator/LLM Only/Hybrid)
   - Интерактивная загрузка данных с Binance
   - Real-time прогресс загрузки (Server-Sent Events)
   - Dropdown-селектор CSV файлов
-  - Отображение результатов бэктестов
+  - Отображение результатов бэктестов с Next Actions panel
+  - Live trading session management через REST + WebSocket
 
 #### **templates/**
-- **base.html**: Базовый HTML шаблон с навигацией
-- **index.html**: Главная страница со списком стратегий
-- **strategy_form.html**: Форма создания/редактирования стратегии
+- **base.html**: Базовый HTML шаблон с навигацией и стилями
+- **index.html** 🔄: Расширенная таблица стратегий
+  - Колонки: Name, Type (Indicator/LLM Only/Hybrid), Symbol, Actions
+  - Type badges с цветовой кодировкой
+  - Кнопки: Edit, Backtest, Live (Paper), Live (Real), Delete
+  - Все Live кнопки pre-fill параметры для quick session start
+- **strategy_form.html** 🔄: Форма создания/редактирования стратегии
   - Настройка индикаторов
   - JSON редактор правил
   - Управление рисками (pyramiding, martingale, TP/SL)
+  - 🆕 **Live Trading Hints**: Подсказки о initial_deposit (Paper vs Real mode)
+  - 🆕 **LLM Regime Hints**: Объяснение position sizing с k multipliers
 - **backtest_form.html**: Форма запуска бэктеста
   - Секция загрузки данных с Binance
   - Real-time прогресс загрузки
   - Dropdown выбор CSV файла
   - Параметры бэктеста (equity, fees, slippage)
-- **backtest_result.html**: Отображение результатов
+- **backtest_result.html** 🔄: Отображение результатов с улучшениями
   - Метрики производительности
-  - Кривая капитала
+  - Кривая капитала с Lightweight Charts
   - Список сделок
+  - 🆕 **Next Actions Panel**:
+    * "Repeat Backtest" - повтор бэктеста
+    * "Go Live (Paper Test)" - переход на live с paper mode + final equity
+    * "Go Live (Real Trading)" - переход на live с real mode
+- **live_trading.html** 🆕: Unified Live Trading UI
+  - **Session Summary Block**:
+    * Strategy, symbol, timeframe, session ID
+    * Running time с live таймером (HH:MM:SS)
+    * Total trades, return %, win rate
+    * Mode badge (Paper/Real)
+  - **Activity Log Console**:
+    * Real-time event logging
+    * Color-coded messages (info/success/error/warning/trade)
+    * Auto-scrolling, 100-entry limit
+  - **Control Panel**:
+    * Strategy/Symbol/Timeframe selectors
+    * Paper/Real mode switcher
+    * Adaptive deposit field (editable vs readonly)
+    * Create/Start/Stop session buttons
+  - **Chart Section**:
+    * Lightweight Charts для candlesticks
+    * Indicator checkboxes (RSI, BB, EMA, Trades)
+    * Real-time bar updates via WebSocket
+  - **Account Status**:
+    * Equity, balance, position, realized/unrealized P&L
+    * Mode badge
+    * LLM regime status (if enabled)
+  - **Trades Table**: Real-time updates с color-coded profit/loss
+  - **Responsive Grid Layout**:
+    * Desktop: control panel + status left, chart right
+    * Mobile: single column stack
+  - **URL Parameter Prefilling**: Pre-fills from query params
+
+#### **static/live_trading.js** 🆕
+- **Назначение**: JavaScript controller для Live Trading UI
+- **Размер**: ~1100 строк кода
+- **Ключевые функции**:
+  - **Session Summary Management**:
+    * `updateSessionSummary()`: Обновление metrics (return %, win rate)
+    * `startDurationTimer()`: Live таймер HH:MM:SS
+    * `updateDuration()`: Обновление каждую секунду
+  - **Activity Log System**:
+    * `addLogEntry(message, type)`: Добавление записи с цветовой кодировкой
+    * Auto-scrolling, 100-entry limit
+    * Type-based styling (info/success/error/warning/trade)
+  - **Mode Switching**:
+    * `handleModeChange()`: Переключение Paper/Real mode
+    * Deposit field адаптация (editable vs readonly)
+    * `fetchLiveBalance()`: Получение баланса из биржи для Real mode
+  - **Session Management**:
+    * `createSession()`: Создание сессии с валидацией
+    * `startSession()`: Запуск торговли с WebSocket connection
+    * `stopSession()`: Остановка торговли с cleanup
+  - **WebSocket Real-time Updates**:
+    * `connectWebSocket()`: Установка WebSocket соединения
+    * `handleWebSocketMessage()`: Роутинг messages (bar/trade/state_update)
+    * Automatic reconnection с exponential backoff
+  - **Chart Management**:
+    * `initializeChart()`: Инициализация Lightweight Charts
+    * `loadInitialBars()`: Загрузка исторических данных
+    * `updateChart()`: Real-time bar updates
+    * `addTradeMarker()`: Добавление markers на график
+    * Indicator series (RSI, BB, EMA) с visibility controls
+  - **UI Updates**:
+    * `updateAccountMetrics()`: Обновление equity, balance, P&L
+    * `updateTradesTable()`: Обновление таблицы сделок
+    * `updateLLMRegime()`: Отображение LLM regime data
+  - **URL Parameters**:
+    * `prefillFormFromURL()`: Pre-filling формы из query params
+    * Supports: strategy, symbol, timeframe, mode, deposit
+- **Особенности**:
+  - Модульная архитектура с разделением ответственности
+  - Type-safe event handling
+  - Comprehensive error handling
+  - Isolated от backtest.js (нет конфликтов)
 
 ---
 
-### 7. CLI инструменты (`llm_trading_system/cli/`)
+### 9. CLI инструменты (`llm_trading_system/cli/`)
 
 #### **full_cycle_cli.py**
 - CLI полного интеграционного теста
@@ -431,7 +700,7 @@
 
 ---
 
-### 6. Тесты (`tests/`)
+### 10. Тесты (`tests/`)
 
 #### **test_position_sizing.py**
 - Юнит-тесты логики размера позиции (ОБНОВЛЕНО для агрессивного режима)
@@ -458,6 +727,48 @@
   - Полный пайплайн: данные → промпт → LLM → парсинг → sizing
   - Детальный вывод всех этапов
   - Поддержка Windows/Linux/macOS
+
+#### **test_ui_smoke.py**
+- Smoke тесты Web UI
+- Проверка основных страниц (index, strategy form, backtest)
+- Валидация CRUD операций
+
+#### **test_ui_live_integration.py** 🆕
+- **Назначение**: UI integration тесты для Live Trading
+- **Количество тестов**: 6
+- **Покрытие**:
+  1. `test_ui_live_page_returns_html`: Проверка наличия всех elements
+     - Mode switcher (paper/real radio buttons)
+     - Deposit field (id="initial-deposit")
+     - Control buttons (create/start/stop)
+     - Chart container
+     - Trades table, account status
+     - Session summary, activity log
+  2. `test_ui_live_prefill_parameters`: URL query params prefilling
+  3. `test_index_contains_live_trading_links`: Links с правильными параметрами
+  4. `test_backtest_result_contains_live_action_buttons`: "Next Actions" panel
+  5. `test_strategy_form_contains_live_hints`: Live trading подсказки
+  6. `test_ui_live_responsive_layout`: Responsive grid layout classes
+- **Результат**: Все 6 тестов PASSED ✅
+
+#### **test_exchange_paper.py** 🆕
+- Тесты PaperTradingClient
+- Проверка симуляции баланса и позиций
+- Валидация order execution
+
+#### **test_live_trading_engine.py** 🆕
+- Тесты LiveTradingEngine
+- Проверка real-time execution цикла
+- Интеграция с ExchangeClient
+
+#### **test_live_api.py** 🆕
+- Тесты REST API endpoints для live sessions
+- CRUD операции с сессиями
+- WebSocket connection testing
+
+#### **test_llm_regime_wrapped.py** 🆕
+- Тесты LLMRegimeWrappedStrategy
+- Интеграция LLM regime с индикаторной стратегией
 
 #### **test_ollama.py**
 - Интеграционные тесты провайдера Ollama
@@ -620,28 +931,49 @@ docker-compose --profile market up market-snapshot
 ## Ключевые особенности
 
 1. **Модульная архитектура**: Четкое разделение обязанностей
-2. **Web UI интерфейс**: Полнофункциональный веб-интерфейс для управления стратегиями
-3. **Автоматическая загрузка данных**: Интеграция с Binance archive с real-time прогрессом
-4. **Индикаторные стратегии**: Универсальный движок с JSON-DSL для правил
-5. **Pine Script совместимость**: Легкий перенос стратегий из TradingView
-6. **Множественные источники данных**: Бесплатные API, без подписок
-7. **LLM-агностичность**: Работает с Ollama, OpenAI или совместимыми провайдерами
-8. **Агрессивный LLM-режим** (НОВОЕ):
+2. **Unified Live Trading** 🆕 (ГЛАВНАЯ НОВИНКА):
+   - Единый интерфейс для Paper и Real trading
+   - Exchange integration (Binance Futures + Paper Trading)
+   - Real-time execution engine с WebSocket updates
+   - Session management (create/start/stop)
+   - Live monitoring с comprehensive metrics
+   - Seamless workflow: Backtest → Paper Test → Live Trading
+3. **Web UI интерфейс**: Полнофункциональный веб-интерфейс для управления стратегиями
+   - Strategy management с type detection (Indicator/LLM/Hybrid)
+   - Live Trading dashboard с session summary и activity log
+   - Responsive design (desktop + mobile)
+   - Real-time charts с Lightweight Charts
+   - URL parameter prefilling для quick navigation
+4. **Автоматическая загрузка данных**: Интеграция с Binance archive с real-time прогрессом
+5. **Индикаторные стратегии**: Универсальный движок с JSON-DSL для правил
+6. **Pine Script совместимость**: Легкий перенос стратегий из TradingView
+7. **Множественные источники данных**: Бесплатные API, без подписок
+8. **LLM-агностичность**: Работает с Ollama, OpenAI или совместимыми провайдерами
+9. **Агрессивный LLM-режим**:
    - Нелинейная амплификация сигналов (EDGE_GAIN, EDGE_GAMMA)
    - Адаптация к уверенности LLM (confidence_level scaling)
    - Усиление по силе тренда (trend_strength boost)
    - Смягченные вероятности (0.6-0.85 приемлемы)
-9. **Управление рисками**:
+10. **Управление рисками**:
    - Автоматическое ограничение позиции на основе метрик риска
    - Пирамидинг и мартингейл-скалирование
    - Take Profit / Stop Loss
    - Временные фильтры
-9. **Бэктестинг**: Полный движок бэктестинга с реалистичным исполнением
-10. **Готовность к Docker**: Полная контейнеризация
-11. **Комплексное тестирование**: Юнит и интеграционные тесты
-12. **Хорошо задокументирован**: Обширная документация на русском языке
-13. **Type Hints**: Полные аннотации типов для Python 3.12+
-14. **Готовность к продакшену**: Логика повторов, обработка ошибок, логирование
+11. **Real-time Monitoring** 🆕:
+   - WebSocket updates для bar/trade/state
+   - Session summary с live metrics (return %, win rate)
+   - Running duration timer
+   - Activity log console с color-coded events
+12. **Бэктестинг**: Полный движок бэктестинга с реалистичным исполнением
+13. **Готовность к Docker**: Полная контейнеризация
+14. **Комплексное тестирование**: Юнит и интеграционные тесты (включая UI tests)
+15. **Хорошо задокументирован**: Обширная документация на русском языке
+16. **Type Hints**: Полные аннотации типов для Python 3.12+
+17. **Готовность к продакшену**: Логика повторов, обработка ошибок, логирование
+18. **Safety Mechanisms** 🆕:
+   - EXCHANGE_LIVE_ENABLED flag для защиты от случайной real trading
+   - Multiple confirmation dialogs для real trading operations
+   - Paper trading для безопасного тестирования
 
 ---
 

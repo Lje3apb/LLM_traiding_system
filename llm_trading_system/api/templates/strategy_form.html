@@ -117,12 +117,15 @@
 
     <div class="form-section">
         <h3>Risk / Money Management</h3>
+        <p class="help-text" style="margin-bottom: 1rem;">
+            <strong>Live Trading Note:</strong> In <strong>Paper Mode</strong>, you specify an initial deposit for simulation. In <strong>Real Mode</strong>, the initial deposit is ignored and your actual exchange balance is used instead.
+        </p>
 
         <div class="form-row">
             <div class="form-group">
                 <label for="base_position_pct">Base Position (% of equity)</label>
                 <input type="number" id="base_position_pct" name="base_position_pct" value="{{ config.get('base_position_pct', 10.0) }}" step="0.1" min="0" max="100">
-                <small class="help-text">Percentage of equity for the first entry</small>
+                <small class="help-text">Percentage of equity for the first entry (applies to both paper and real trading)</small>
             </div>
 
             <div class="form-group">
@@ -187,11 +190,15 @@
 
     <div class="form-section">
         <h3>LLM Parameters (for LLM_ONLY and HYBRID modes)</h3>
+        <p class="help-text" style="margin-bottom: 1rem;">
+            <strong>Live Trading Note:</strong> When LLM mode is enabled in live trading, the strategy will adjust position sizes based on LLM regime predictions (bullish/bearish/neutral). This multiplies the base position size by a regime-specific factor (k).
+        </p>
 
         <div class="form-row">
             <div class="form-group">
                 <label for="k_max">K Max</label>
                 <input type="number" id="k_max" name="k_max" value="{{ config.get('k_max', 2.0) }}" step="0.1" min="0">
+                <small class="help-text">Maximum position multiplier for strong regime signals</small>
             </div>
 
             <div class="form-group">

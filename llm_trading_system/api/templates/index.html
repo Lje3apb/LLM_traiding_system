@@ -3,25 +3,220 @@
 {% block title %}Strategy Configs - LLM Trading System{% endblock %}
 
 {% block content %}
+<style>
+    .strategies-table {
+        width: 100%;
+        background: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .strategies-table table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .strategies-table th {
+        background: #f9fafb;
+        padding: 1rem;
+        text-align: left;
+        font-weight: 600;
+        color: #374151;
+        border-bottom: 2px solid #e5e7eb;
+        font-size: 0.875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .strategies-table td {
+        padding: 1rem;
+        border-bottom: 1px solid #e5e7eb;
+        color: #1f2937;
+    }
+
+    .strategies-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .strategies-table tr:hover {
+        background: #f9fafb;
+    }
+
+    .strategy-name {
+        font-weight: 600;
+        color: #111827;
+        font-size: 1rem;
+    }
+
+    .strategy-type {
+        display: inline-block;
+        padding: 0.25rem 0.75rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .strategy-type.indicator {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+    }
+
+    .strategy-type.llm {
+        background: rgba(139, 92, 246, 0.1);
+        color: #8b5cf6;
+    }
+
+    .strategy-type.hybrid {
+        background: rgba(16, 185, 129, 0.1);
+        color: #10b981;
+    }
+
+    .strategy-type.unknown {
+        background: rgba(107, 114, 128, 0.1);
+        color: #6b7280;
+    }
+
+    .action-buttons {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .btn-sm {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.875rem;
+        border-radius: 4px;
+        font-weight: 500;
+        text-decoration: none;
+        display: inline-block;
+        transition: all 0.15s;
+        border: none;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+    .btn-primary {
+        background: #3b82f6;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #2563eb;
+    }
+
+    .btn-secondary {
+        background: #6b7280;
+        color: white;
+    }
+
+    .btn-secondary:hover {
+        background: #4b5563;
+    }
+
+    .btn-success {
+        background: #10b981;
+        color: white;
+    }
+
+    .btn-success:hover {
+        background: #059669;
+    }
+
+    .btn-warning {
+        background: #f59e0b;
+        color: white;
+    }
+
+    .btn-warning:hover {
+        background: #d97706;
+    }
+
+    .btn-danger {
+        background: #ef4444;
+        color: white;
+    }
+
+    .btn-danger:hover {
+        background: #dc2626;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 3rem 2rem;
+        color: #6b7280;
+    }
+
+    .empty-state a {
+        color: #3b82f6;
+        text-decoration: none;
+        font-weight: 600;
+    }
+
+    .empty-state a:hover {
+        text-decoration: underline;
+    }
+
+    @media (max-width: 768px) {
+        .strategies-table {
+            overflow-x: auto;
+        }
+
+        .strategies-table table {
+            min-width: 800px;
+        }
+
+        .action-buttons {
+            flex-direction: column;
+        }
+    }
+</style>
+
 <div class="page-header">
     <h2>Strategy Configurations</h2>
     <a href="/ui/strategies/new" class="btn btn-primary">Create New Strategy</a>
 </div>
 
 {% if strategies %}
-<div class="strategy-list">
-    {% for name in strategies %}
-    <div class="strategy-card">
-        <h3>{{ name }}</h3>
-        <div class="strategy-actions">
-            <a href="/ui/strategies/{{ name }}/edit" class="btn btn-secondary">Edit</a>
-            <a href="/ui/strategies/{{ name }}/backtest" class="btn btn-success">Run Backtest</a>
-            <form method="POST" action="/ui/strategies/{{ name }}/delete" style="display: inline;">
-                <button type="submit" class="btn btn-danger" onclick="return confirm('Delete strategy {{ name }}?')">Delete</button>
-            </form>
-        </div>
-    </div>
-    {% endfor %}
+<div class="strategies-table">
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Symbol</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for strategy in strategies %}
+            <tr>
+                <td>
+                    <span class="strategy-name">{{ strategy.name }}</span>
+                </td>
+                <td>
+                    <span class="strategy-type {{ strategy.mode }}">{{ strategy.type }}</span>
+                </td>
+                <td>{{ strategy.symbol }}</td>
+                <td>
+                    <div class="action-buttons">
+                        <a href="/ui/strategies/{{ strategy.name }}/edit" class="btn-sm btn-secondary">Edit</a>
+                        <a href="/ui/strategies/{{ strategy.name }}/backtest" class="btn-sm btn-primary">Backtest</a>
+                        <a href="/ui/live?strategy={{ strategy.name }}&symbol={{ strategy.symbol }}&timeframe=5m&mode=paper&deposit=10000" class="btn-sm btn-success">Live (Paper)</a>
+                        {% if live_enabled %}
+                        <a href="/ui/live?strategy={{ strategy.name }}&symbol={{ strategy.symbol }}&timeframe=5m&mode=real" class="btn-sm btn-warning">Live (Real)</a>
+                        {% endif %}
+                        <form method="POST" action="/ui/strategies/{{ strategy.name }}/delete" style="display: inline; margin: 0;">
+                            <button type="submit" class="btn-sm btn-danger" onclick="return confirm('Delete strategy {{ strategy.name }}?')">Delete</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </div>
 {% else %}
 <div class="empty-state">

@@ -622,9 +622,50 @@ async def ui_index(request: Request) -> HTMLResponse:
         HTML response with strategy list
     """
     try:
-        strategies = storage.list_configs()
+        import os
+
+        strategy_names = storage.list_configs()
+
+        # Load configs to get strategy types
+        strategies = []
+        for name in strategy_names:
+            try:
+                config = storage.load_config(name)
+                strategy_type = config.get('strategy_type', 'indicator')
+                mode = config.get('mode', 'quant_only')
+
+                # Determine display type
+                if mode == 'llm_only':
+                    display_type = 'LLM Only'
+                elif mode == 'hybrid':
+                    display_type = 'Hybrid (LLM + Indicator)'
+                else:
+                    display_type = strategy_type.capitalize()
+
+                strategies.append({
+                    'name': name,
+                    'type': display_type,
+                    'mode': mode,
+                    'symbol': config.get('symbol', 'BTCUSDT'),
+                })
+            except Exception:
+                # If config fails to load, add minimal info
+                strategies.append({
+                    'name': name,
+                    'type': 'Unknown',
+                    'mode': 'unknown',
+                    'symbol': 'BTCUSDT',
+                })
+
+        # Check if live trading is enabled
+        live_enabled = os.getenv("EXCHANGE_LIVE_ENABLED", "false").lower() == "true"
+
         return templates.TemplateResponse(
-            "index.html", {"request": request, "strategies": strategies}
+            "index.html", {
+                "request": request,
+                "strategies": strategies,
+                "live_enabled": live_enabled,
+            }
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list configs: {e}")
@@ -931,10 +972,19 @@ async def ui_run_backtest(
             "config": config,
         }
 
+        # Check if live trading is enabled
+        import os
+        live_enabled = os.getenv("EXCHANGE_LIVE_ENABLED", "false").lower() == "true"
+
         # Render results
         return templates.TemplateResponse(
             "backtest_result.html",
-            {"request": request, "name": name, "summary": summary},
+            {
+                "request": request,
+                "name": name,
+                "summary": summary,
+                "live_enabled": live_enabled,
+            },
         )
 
     except FileNotFoundError as e:
