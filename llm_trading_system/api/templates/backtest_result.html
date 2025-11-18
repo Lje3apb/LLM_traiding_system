@@ -589,8 +589,12 @@
             renderTradesTable(tradesData);
         } catch (error) {
             console.error('Failed to load chart data:', error);
-            document.getElementById('chart-loading').innerHTML =
-                `<div class="error">Failed to load chart data: ${error.message}</div>`;
+            const loadingEl = document.getElementById('chart-loading');
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.textContent = 'Failed to load chart data: ' + error.message;
+            loadingEl.innerHTML = '';  // Clear first
+            loadingEl.appendChild(errorDiv);
         }
     }
 
