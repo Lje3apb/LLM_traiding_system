@@ -1,0 +1,18 @@
+{
+  "strategy_type": "indicator",
+  "mode": "quant_only",
+  "symbol": "BTCUSDT",
+  "base_size": 0.01,
+  "allow_long": true,
+  "allow_short": false,
+  "ema_fast_len": 12,
+  "ema_slow_len": 26,
+  "rsi_len": 14,
+  "rsi_ovb": 70,
+  "rsi_ovs": 30,
+  "bb_len": 20,
+  "bb_mult": 2.0,
+  "atr_len": 14,
+  "adx_len": 14,
+  "k_max": 2.0
+}
