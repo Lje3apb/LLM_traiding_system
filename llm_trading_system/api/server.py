@@ -42,7 +42,12 @@ app = FastAPI(
 
 # Initialize rate limiter
 # Uses IP address as identifier for rate limiting
-limiter = Limiter(key_func=get_remote_address)
+# Note: Explicitly set storage_uri and disable .env reading to avoid encoding issues on Windows
+limiter = Limiter(
+    key_func=get_remote_address,
+    storage_uri="memory://",  # Use in-memory storage (suitable for single-instance deployment)
+    config_filename=None,  # Disable automatic .env file reading (prevents Windows encoding issues)
+)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
