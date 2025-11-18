@@ -92,11 +92,23 @@ class PaperExchangeClient:
         positions = self.get_open_positions()
         unrealized_pnl = sum(pos.unrealized_pnl for pos in positions)
 
-        # Available balance is equity minus position value
+        # Available balance is equity minus margin used (Issue #5 - Fixed calculation)
+        # position_size is a fraction (e.g., 0.5 = 50% of capital allocated)
+        # With leverage, margin used = (position_value / leverage)
+        # position_value = |position_units| * current_price
         available = self.portfolio.account.equity
         if self.portfolio.account.position_size != 0 and self.current_bar:
-            position_value = abs(self.portfolio.account.position_size) * self.portfolio.account.equity
-            available = self.portfolio.account.equity - position_value
+            # Calculate actual position value in USDT
+            position_units = abs(self.portfolio._position_units)
+            current_price = self.current_bar.close
+            position_value = position_units * current_price
+
+            # Calculate margin used (accounting for leverage)
+            leverage = self.config.leverage if self.config.leverage > 0 else 1
+            margin_used = position_value / leverage
+
+            # Available = equity - margin_used
+            available = self.portfolio.account.equity - margin_used
 
         return AccountInfo(
             total_balance=self.portfolio.account.equity,
@@ -118,15 +130,17 @@ class PaperExchangeClient:
         if not self.current_bar or self.portfolio.account.entry_price is None:
             return []
 
-        # Calculate unrealized PnL
+        # Calculate unrealized PnL (Issue #4 - Clarified comment)
+        # NOTE: _position_units carries the sign (positive for long, negative for short)
+        # Therefore, the same formula works for both long and short positions:
+        # - Long: positive_units * (current - entry) = profit if current > entry
+        # - Short: negative_units * (current - entry) = profit if current < entry (since units are negative)
         size = self.portfolio.account.position_size
         entry = self.portfolio.account.entry_price
         current_price = self.current_bar.close
 
-        if size > 0:  # Long position
-            unrealized_pnl = self.portfolio._position_units * (current_price - entry)
-        else:  # Short position
-            unrealized_pnl = self.portfolio._position_units * (current_price - entry)
+        # Single formula works for both long and short because _position_units carries the sign
+        unrealized_pnl = self.portfolio._position_units * (current_price - entry)
 
         return [
             PositionInfo(
@@ -304,21 +318,26 @@ class PaperExchangeClient:
         # Determine target position side
         current_pos = self.portfolio.account.position_size
 
-        if side == "buy":
-            if reduce_only and current_pos >= 0:
+        # Validate reduce-only orders (Issue #6 - Fixed to reject invalid orders)
+        if reduce_only:
+            if side == "buy" and current_pos >= 0:
                 # Can't reduce a long or flat position with a buy
-                target_side = "flat"
-                target_fraction = 0.0
-            else:
-                target_side = "long"
-        else:  # sell
-            if reduce_only and current_pos <= 0:
+                raise ValueError(
+                    f"Invalid reduce-only order: cannot reduce {('long' if current_pos > 0 else 'flat')} "
+                    f"position with a BUY order. Current position: {current_pos}"
+                )
+            if side == "sell" and current_pos <= 0:
                 # Can't reduce a short or flat position with a sell
-                target_side = "flat"
-                target_fraction = 0.0
-            else:
-                target_side = "short"
-                target_fraction = -target_fraction
+                raise ValueError(
+                    f"Invalid reduce-only order: cannot reduce {('short' if current_pos < 0 else 'flat')} "
+                    f"position with a SELL order. Current position: {current_pos}"
+                )
+
+        if side == "buy":
+            target_side = "long"
+        else:  # sell
+            target_side = "short"
+            target_fraction = -target_fraction
 
         # Create order for portfolio
         from llm_trading_system.strategies.base import Order

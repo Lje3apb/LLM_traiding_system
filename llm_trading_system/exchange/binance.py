@@ -50,6 +50,13 @@ class BinanceFuturesClient:
         """
         self.config = config
 
+        # Validate API credentials early (Issue #7)
+        if not config.api_key or not config.api_secret:
+            raise ValueError(
+                "API credentials are required for Binance Futures. "
+                "Please provide both api_key and api_secret in ExchangeConfig."
+            )
+
         # Initialize CCXT Binance futures exchange
         exchange_options: dict[str, Any] = {
             "apiKey": config.api_key,
@@ -75,13 +82,40 @@ class BinanceFuturesClient:
         except Exception as e:
             raise RuntimeError(f"Failed to connect to Binance: {e}")
 
-        # Set leverage if specified
+        # Synchronize time with Binance server (Issue #3)
+        # CRITICAL: Binance requires timestamps within ±5 seconds
+        try:
+            self.exchange.load_time_difference()
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to synchronize time with Binance server. "
+                f"Time sync is required for API authentication. Error: {e}"
+            )
+
+        # Set leverage if specified - CRITICAL: fail if leverage setting fails
         if config.leverage > 1:
             try:
                 self.exchange.set_leverage(config.leverage, config.trading_symbol)
+                # Verify leverage was actually set by fetching position info
+                # This prevents trading with incorrect leverage
+                positions = self.exchange.fetch_positions([config.trading_symbol])
+                actual_leverage = None
+                for pos in positions:
+                    if pos.get("symbol") == config.trading_symbol:
+                        actual_leverage = pos.get("leverage")
+                        break
+
+                if actual_leverage and actual_leverage != config.leverage:
+                    raise RuntimeError(
+                        f"Leverage mismatch: requested {config.leverage}x but exchange set {actual_leverage}x. "
+                        f"Trading with wrong leverage could lead to liquidation!"
+                    )
             except Exception as e:
-                # Some exchanges don't support setting leverage via API
-                print(f"Warning: Could not set leverage: {e}")
+                # CRITICAL: Do not continue with wrong leverage - this could cause financial loss
+                raise RuntimeError(
+                    f"Failed to set leverage to {config.leverage}x for {config.trading_symbol}. "
+                    f"Cannot proceed without correct leverage setting. Error: {e}"
+                )
 
     def get_account_info(self) -> AccountInfo:
         """Retrieve current account information.
@@ -295,12 +329,28 @@ class BinanceFuturesClient:
         if quantity <= 0:
             raise ValueError(f"Quantity must be positive, got {quantity}")
 
-        # Set leverage if specified
+        # Validate minimum notional (Issue #2)
+        # CRITICAL: Binance rejects orders below minimum notional value
+        estimated_price = price if price is not None else self.get_latest_price(symbol)
+        notional_value = quantity * estimated_price
+
+        if notional_value < self.config.min_notional:
+            raise ValueError(
+                f"Order notional value {notional_value:.2f} USDT is below minimum "
+                f"{self.config.min_notional:.2f} USDT. Order would be rejected by Binance. "
+                f"Increase quantity or check symbol price."
+            )
+
+        # Set leverage if specified (related to Issue #1)
         if leverage is not None and leverage != self.config.leverage:
             try:
                 self.exchange.set_leverage(leverage, symbol)
             except Exception as e:
-                print(f"Warning: Could not set leverage to {leverage}: {e}")
+                # CRITICAL: Do not continue with wrong leverage
+                raise RuntimeError(
+                    f"Failed to set leverage to {leverage}x for {symbol}. "
+                    f"Cannot place order with incorrect leverage. Error: {e}"
+                )
 
         try:
             # Prepare order parameters
@@ -378,13 +428,17 @@ class BinanceFuturesClient:
         to force a time sync if needed.
 
         Raises:
-            Exception: If synchronization fails
+            RuntimeError: If synchronization fails (CRITICAL - cannot trade without time sync)
         """
         try:
             # CCXT handles time sync automatically via load_time_difference
             self.exchange.load_time_difference()
         except Exception as e:
-            print(f"Warning: Time sync failed: {e}")
+            # CRITICAL: Time sync failure means all API requests will fail
+            raise RuntimeError(
+                f"Failed to synchronize time with Binance server. "
+                f"All API requests will fail without accurate time sync. Error: {e}"
+            )
 
 
 __all__ = ["BinanceFuturesClient"]
