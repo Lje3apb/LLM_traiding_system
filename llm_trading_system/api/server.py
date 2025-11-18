@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+import secrets
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -19,6 +22,9 @@ from llm_trading_system.engine.live_service import (
     get_session_manager,
 )
 from llm_trading_system.strategies import storage
+
+# Setup logger
+logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
@@ -37,6 +43,98 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 # Global storage for backtest results (in-memory cache)
 # Key: strategy name, Value: dict with summary, ohlcv_data, trades, data_path
 _backtest_cache: dict[str, dict[str, Any]] = {}
+
+
+# ============================================================================
+# CSRF Protection (Double Submit Cookie Pattern)
+# ============================================================================
+
+
+def _generate_csrf_token() -> str:
+    """Generate a secure random CSRF token.
+
+    Returns:
+        64-character hexadecimal CSRF token
+    """
+    return secrets.token_hex(32)
+
+
+def _verify_csrf_token(request: Request, form_token: str | None) -> None:
+    """Verify CSRF token using Double Submit Cookie pattern.
+
+    Args:
+        request: FastAPI Request object containing cookies
+        form_token: CSRF token from form submission
+
+    Raises:
+        HTTPException: If CSRF validation fails (403 Forbidden)
+
+    Security Note:
+        Uses constant-time comparison to prevent timing attacks
+    """
+    # Get token from cookie
+    cookie_token = request.cookies.get("csrf_token")
+
+    # Validate both tokens exist
+    if not cookie_token:
+        raise HTTPException(
+            status_code=403,
+            detail="CSRF token missing from cookie. Please refresh the page and try again."
+        )
+
+    if not form_token:
+        raise HTTPException(
+            status_code=403,
+            detail="CSRF token missing from form submission. This request has been blocked for security."
+        )
+
+    # Constant-time comparison to prevent timing attacks
+    if not secrets.compare_digest(cookie_token, form_token):
+        raise HTTPException(
+            status_code=403,
+            detail="CSRF token validation failed. This may indicate a Cross-Site Request Forgery attack."
+        )
+
+
+@app.middleware("http")
+async def csrf_middleware(request: Request, call_next):
+    """Add CSRF token cookie to all GET requests for UI pages.
+
+    This middleware implements the Double Submit Cookie pattern:
+    1. On GET requests to /ui/*, set a random CSRF token in a cookie
+    2. The cookie is accessible to JavaScript (httponly=False)
+    3. Forms must submit this token for POST requests
+    4. Token is validated server-side against the cookie
+
+    Security Properties:
+    - SameSite=Strict prevents CSRF from external sites
+    - Secure=True in production (HTTPS only)
+    - Token changes on each page load (stateless)
+    """
+    response = await call_next(request)
+
+    # Only set CSRF cookie for GET requests to UI pages
+    if request.method == "GET" and request.url.path.startswith("/ui"):
+        csrf_token = _generate_csrf_token()
+
+        # Determine if we're in production
+        is_production = os.getenv("ENV", "").lower() == "production"
+
+        response.set_cookie(
+            key="csrf_token",
+            value=csrf_token,
+            httponly=False,  # Allow JavaScript to read for form submission
+            samesite="strict",  # Prevent CSRF from external sites
+            secure=is_production,  # HTTPS only in production
+            max_age=3600,  # 1 hour expiration
+        )
+
+    return response
+
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
 
 
 def _validate_data_path(path_str: str) -> Path:
@@ -798,7 +896,9 @@ async def ui_edit_strategy(request: Request, name: str) -> HTMLResponse:
 
 @app.post("/ui/strategies/{name}/save")
 async def ui_save_strategy(
+    request: Request,
     name: str,
+    csrf_token: str = Form(...),  # CSRF protection
     strategy_name: str = Form(..., alias="name"),
     strategy_type: str = Form(...),
     mode: str = Form(...),
@@ -851,6 +951,9 @@ async def ui_save_strategy(
     Raises:
         HTTPException: If validation fails (400) or save error (500)
     """
+    # CSRF validation (must be first to prevent processing invalid requests)
+    _verify_csrf_token(request, csrf_token)
+
     # Use form name if different from URL name (for new strategies)
     actual_name = strategy_name if name == "new" else name
 
@@ -919,11 +1022,17 @@ async def ui_save_strategy(
 
 
 @app.post("/ui/strategies/{name}/delete")
-async def ui_delete_strategy(name: str) -> RedirectResponse:
+async def ui_delete_strategy(
+    request: Request,
+    name: str,
+    csrf_token: str = Form(...),  # CSRF protection
+) -> RedirectResponse:
     """Web UI: Delete a strategy configuration.
 
     Args:
+        request: FastAPI request object
         name: Strategy config name
+        csrf_token: CSRF token from form
 
     Returns:
         Redirect to index page
@@ -932,6 +1041,9 @@ async def ui_delete_strategy(name: str) -> RedirectResponse:
         HTTPException: If config not found (404) or error deleting (500)
     """
     try:
+        # CSRF validation (must be first to prevent processing invalid requests)
+        _verify_csrf_token(request, csrf_token)
+
         storage.delete_config(name)
         return RedirectResponse(url="/ui/", status_code=303)
     except FileNotFoundError:
@@ -988,6 +1100,7 @@ async def ui_backtest_form(request: Request, name: str) -> HTMLResponse:
 async def ui_run_backtest(
     request: Request,
     name: str,
+    csrf_token: str = Form(...),  # CSRF protection
     data_path: str = Form(...),
     use_llm: bool = Form(False),
     llm_model: str = Form("llama3.2"),
@@ -1016,6 +1129,9 @@ async def ui_run_backtest(
         HTTPException: If config not found, data not found, or backtest fails
     """
     try:
+        # CSRF validation (must be first to prevent processing invalid requests)
+        _verify_csrf_token(request, csrf_token)
+
         # Load config
         config = storage.load_config(name)
 
@@ -1208,7 +1324,9 @@ async def ui_get_backtest_chart_data(name: str) -> JSONResponse:
 
 @app.post("/ui/strategies/{name}/download_data")
 async def ui_download_data(
+    request: Request,
     name: str,
+    csrf_token: str = Form(...),  # CSRF protection
     symbol: str = Form(...),
     interval: str = Form(...),
     start_date: str = Form(...),
@@ -1226,6 +1344,9 @@ async def ui_download_data(
     Returns:
         Streaming response with progress updates (newline-delimited JSON)
     """
+    # CSRF validation (must be first to prevent processing invalid requests)
+    _verify_csrf_token(request, csrf_token)
+
     from datetime import datetime, timedelta
     import pandas as pd
 
@@ -1394,6 +1515,7 @@ async def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
 @app.post("/ui/settings")
 async def save_settings(
     request: Request,
+    csrf_token: str = Form(...),  # CSRF protection
     # LLM settings
     llm_provider: str = Form(...),
     default_model: str = Form(...),
@@ -1450,6 +1572,9 @@ async def save_settings(
     try:
         import os
         from llm_trading_system.config.service import load_config, save_config
+
+        # CSRF validation (must be first to prevent processing invalid requests)
+        _verify_csrf_token(request, csrf_token)
 
         # SECURITY: Check for HTTPS when submitting API keys in production
         # Allow HTTP only in development (ENV != production)

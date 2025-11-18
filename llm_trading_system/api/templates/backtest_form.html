@@ -9,6 +9,7 @@
 </div>
 
 <form method="POST" action="/ui/strategies/{{ name }}/backtest" class="strategy-form">
+    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
     <div class="form-section">
         <h3>Data Download from Binance</h3>
         <p class="help-text">Automatically download historical OHLCV data from Binance archive</p>
@@ -143,6 +144,14 @@
 </div>
 
 <script>
+// Helper function to get cookie value
+function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+    return '';
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     const downloadBtn = document.getElementById('download_btn');
     const downloadStatus = document.getElementById('download_status');
@@ -239,6 +248,7 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             // Prepare form data
             const formData = new FormData();
+            formData.append('csrf_token', getCookie('csrf_token'));  // CSRF protection
             formData.append('symbol', symbol);
             formData.append('interval', interval);
             formData.append('start_date', startDate);
