@@ -630,6 +630,43 @@ async def ui_index(request: Request) -> HTMLResponse:
         raise HTTPException(status_code=500, detail=f"Failed to list configs: {e}")
 
 
+@app.get("/ui/live", response_class=HTMLResponse)
+async def ui_live_trading(request: Request) -> HTMLResponse:
+    """Web UI: Live trading page for paper and real trading.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        HTML response with live trading UI
+    """
+    try:
+        import os
+
+        # Check if live trading is enabled
+        live_enabled = os.getenv("EXCHANGE_LIVE_ENABLED", "false").lower() == "true"
+
+        # Get strategies
+        strategies = storage.list_configs()
+
+        # Define symbols and timeframes
+        symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT"]
+        timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
+
+        return templates.TemplateResponse(
+            "live_trading.html",
+            {
+                "request": request,
+                "strategies": strategies,
+                "symbols": symbols,
+                "timeframes": timeframes,
+                "live_enabled": live_enabled,
+            },
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load live trading page: {e}")
+
+
 @app.get("/ui/strategies/new", response_class=HTMLResponse)
 async def ui_new_strategy(request: Request) -> HTMLResponse:
     """Web UI: Show form to create a new strategy.
