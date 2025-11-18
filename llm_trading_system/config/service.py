@@ -27,6 +27,42 @@ _CONFIG_LOCK = threading.Lock()
 logger = logging.getLogger(__name__)
 
 
+def _safe_float(value: str, default: float, name: str) -> float:
+    """Safely parse float from string with fallback to default.
+
+    Args:
+        value: String value to parse
+        default: Default value if parsing fails
+        name: Variable name for logging
+
+    Returns:
+        Parsed float or default
+    """
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        logger.warning("Invalid %s='%s', using default %.4f", name, value, default)
+        return default
+
+
+def _safe_int(value: str, default: int, name: str) -> int:
+    """Safely parse int from string with fallback to default.
+
+    Args:
+        value: String value to parse
+        default: Default value if parsing fails
+        name: Variable name for logging
+
+    Returns:
+        Parsed int or default
+    """
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        logger.warning("Invalid %s='%s', using default %d", name, value, default)
+        return default
+
+
 def get_config_path() -> Path:
     """Get path to the configuration file.
 
@@ -74,14 +110,14 @@ def _load_from_env() -> AppConfig:
         ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
         openai_api_base=os.getenv("OPENAI_API_BASE"),
         openai_api_key=os.getenv("OPENAI_API_KEY"),
-        temperature=float(os.getenv("LLM_TEMPERATURE", "0.1")),
-        timeout_seconds=int(os.getenv("LLM_TIMEOUT_SECONDS", "60")),
+        temperature=_safe_float(os.getenv("LLM_TEMPERATURE", "0.1"), 0.1, "LLM_TEMPERATURE"),
+        timeout_seconds=_safe_int(os.getenv("LLM_TIMEOUT_SECONDS", "60"), 60, "LLM_TIMEOUT_SECONDS"),
     )
 
     # Market configuration
     market_config = MarketConfig(
         base_asset=os.getenv("BASE_ASSET", "BTCUSDT"),
-        horizon_hours=int(os.getenv("HORIZON_HOURS", "4")),
+        horizon_hours=_safe_int(os.getenv("HORIZON_HOURS", "4"), 4, "HORIZON_HOURS"),
         use_news=os.getenv("USE_NEWS", "true").lower() in ("true", "1", "yes"),
         use_onchain=os.getenv("USE_ONCHAIN", "true").lower() in ("true", "1", "yes"),
         use_funding=os.getenv("USE_FUNDING", "true").lower() in ("true", "1", "yes"),
@@ -89,12 +125,12 @@ def _load_from_env() -> AppConfig:
 
     # Risk configuration
     risk_config = RiskConfig(
-        base_long_size=float(os.getenv("BASE_LONG_SIZE", "0.01")),
-        base_short_size=float(os.getenv("BASE_SHORT_SIZE", "0.01")),
-        k_max=float(os.getenv("K_MAX", "2.0")),
-        edge_gain=float(os.getenv("EDGE_GAIN", "2.5")),
-        edge_gamma=float(os.getenv("EDGE_GAMMA", "0.7")),
-        base_k=float(os.getenv("BASE_K", "0.5")),
+        base_long_size=_safe_float(os.getenv("BASE_LONG_SIZE", "0.01"), 0.01, "BASE_LONG_SIZE"),
+        base_short_size=_safe_float(os.getenv("BASE_SHORT_SIZE", "0.01"), 0.01, "BASE_SHORT_SIZE"),
+        k_max=_safe_float(os.getenv("K_MAX", "2.0"), 2.0, "K_MAX"),
+        edge_gain=_safe_float(os.getenv("EDGE_GAIN", "2.5"), 2.5, "EDGE_GAIN"),
+        edge_gamma=_safe_float(os.getenv("EDGE_GAMMA", "0.7"), 0.7, "EDGE_GAMMA"),
+        base_k=_safe_float(os.getenv("BASE_K", "0.5"), 0.5, "BASE_K"),
     )
 
     # Exchange configuration
@@ -112,10 +148,10 @@ def _load_from_env() -> AppConfig:
 
     # UI defaults configuration
     ui_config = UiDefaultsConfig(
-        default_initial_deposit=float(os.getenv("DEFAULT_INITIAL_DEPOSIT", "1000.0")),
-        default_backtest_equity=float(os.getenv("DEFAULT_BACKTEST_EQUITY", "1000.0")),
-        default_commission=float(os.getenv("DEFAULT_COMMISSION", "0.04")),
-        default_slippage=float(os.getenv("DEFAULT_SLIPPAGE", "0.0")),
+        default_initial_deposit=_safe_float(os.getenv("DEFAULT_INITIAL_DEPOSIT", "1000.0"), 1000.0, "DEFAULT_INITIAL_DEPOSIT"),
+        default_backtest_equity=_safe_float(os.getenv("DEFAULT_BACKTEST_EQUITY", "1000.0"), 1000.0, "DEFAULT_BACKTEST_EQUITY"),
+        default_commission=_safe_float(os.getenv("DEFAULT_COMMISSION", "0.04"), 0.04, "DEFAULT_COMMISSION"),
+        default_slippage=_safe_float(os.getenv("DEFAULT_SLIPPAGE", "0.0"), 0.0, "DEFAULT_SLIPPAGE"),
     )
 
     return AppConfig(
