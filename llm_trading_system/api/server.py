@@ -1267,6 +1267,167 @@ async def ui_download_data(
     return StreamingResponse(generate_progress(), media_type="application/x-ndjson")
 
 
+@app.get("/ui/settings", response_class=HTMLResponse)
+async def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
+    """Web UI: System settings page for AppConfig management.
+
+    Args:
+        request: FastAPI request object
+        saved: Whether settings were just saved (query parameter)
+
+    Returns:
+        HTML response with settings form
+    """
+    try:
+        from llm_trading_system.config.service import load_config
+        from llm_trading_system.infra.llm_infra import list_ollama_models
+
+        # Load current config
+        cfg = load_config()
+
+        # Fetch available Ollama models
+        ollama_models = list_ollama_models(cfg.llm.ollama_base_url)
+
+        return templates.TemplateResponse(
+            "settings.html",
+            {
+                "request": request,
+                "config": cfg,
+                "ollama_models": ollama_models,
+                "saved": saved,
+            },
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load settings: {e}")
+
+
+@app.post("/ui/settings")
+async def save_settings(
+    # LLM settings
+    llm_provider: str = Form(...),
+    default_model: str = Form(...),
+    ollama_base_url: str = Form(...),
+    openai_api_base: str = Form(""),
+    openai_api_key: str = Form(""),
+    temperature: float = Form(...),
+    timeout_seconds: int = Form(...),
+    # API settings
+    newsapi_key: str = Form(""),
+    newsapi_base_url: str = Form(...),
+    cryptopanic_api_key: str = Form(""),
+    cryptopanic_base_url: str = Form(...),
+    coinmetrics_base_url: str = Form(...),
+    blockchain_com_base_url: str = Form(...),
+    binance_base_url: str = Form(...),
+    binance_fapi_url: str = Form(...),
+    # Market settings
+    base_asset: str = Form(...),
+    horizon_hours: int = Form(...),
+    use_news: bool = Form(False),
+    use_onchain: bool = Form(False),
+    use_funding: bool = Form(False),
+    # Risk settings
+    base_long_size: float = Form(...),
+    base_short_size: float = Form(...),
+    k_max: float = Form(...),
+    edge_gain: float = Form(...),
+    edge_gamma: float = Form(...),
+    base_k: float = Form(...),
+    # Exchange settings
+    exchange_name: str = Form(...),
+    exchange_api_key: str = Form(""),
+    exchange_api_secret: str = Form(""),
+    use_testnet: bool = Form(False),
+    live_trading_enabled: bool = Form(False),
+    default_symbol: str = Form(...),
+    default_timeframe: str = Form(...),
+    # UI defaults
+    default_initial_deposit: float = Form(...),
+    default_backtest_equity: float = Form(...),
+    default_commission: float = Form(...),
+    default_slippage: float = Form(...),
+) -> RedirectResponse:
+    """Web UI: Save system settings to AppConfig.
+
+    Args:
+        (all form fields...)
+
+    Returns:
+        Redirect to settings page with saved=1 query parameter
+    """
+    try:
+        from llm_trading_system.config.service import load_config, save_config
+
+        # Load current config
+        cfg = load_config()
+
+        # Update LLM settings
+        cfg.llm.llm_provider = llm_provider
+        cfg.llm.default_model = default_model
+        cfg.llm.ollama_base_url = ollama_base_url
+        cfg.llm.temperature = temperature
+        cfg.llm.timeout_seconds = timeout_seconds
+
+        # Update OpenAI settings (preserve secrets if empty)
+        if openai_api_base:
+            cfg.llm.openai_api_base = openai_api_base
+        if openai_api_key:
+            cfg.llm.openai_api_key = openai_api_key
+
+        # Update API settings (preserve secrets if empty)
+        if newsapi_key:
+            cfg.api.newsapi_key = newsapi_key
+        cfg.api.newsapi_base_url = newsapi_base_url
+        if cryptopanic_api_key:
+            cfg.api.cryptopanic_api_key = cryptopanic_api_key
+        cfg.api.cryptopanic_base_url = cryptopanic_base_url
+        cfg.api.coinmetrics_base_url = coinmetrics_base_url
+        cfg.api.blockchain_com_base_url = blockchain_com_base_url
+        cfg.api.binance_base_url = binance_base_url
+        cfg.api.binance_fapi_url = binance_fapi_url
+
+        # Update Market settings
+        cfg.market.base_asset = base_asset
+        cfg.market.horizon_hours = horizon_hours
+        cfg.market.use_news = use_news
+        cfg.market.use_onchain = use_onchain
+        cfg.market.use_funding = use_funding
+
+        # Update Risk settings
+        cfg.risk.base_long_size = base_long_size
+        cfg.risk.base_short_size = base_short_size
+        cfg.risk.k_max = k_max
+        cfg.risk.edge_gain = edge_gain
+        cfg.risk.edge_gamma = edge_gamma
+        cfg.risk.base_k = base_k
+
+        # Update Exchange settings (preserve secrets if empty)
+        cfg.exchange.exchange_name = exchange_name
+        if exchange_api_key:
+            cfg.exchange.api_key = exchange_api_key
+        if exchange_api_secret:
+            cfg.exchange.api_secret = exchange_api_secret
+        cfg.exchange.use_testnet = use_testnet
+        cfg.exchange.live_trading_enabled = live_trading_enabled
+        cfg.exchange.default_symbol = default_symbol
+        cfg.exchange.default_timeframe = default_timeframe
+
+        # Update UI defaults
+        cfg.ui.default_initial_deposit = default_initial_deposit
+        cfg.ui.default_backtest_equity = default_backtest_equity
+        cfg.ui.default_commission = default_commission
+        cfg.ui.default_slippage = default_slippage
+
+        # Save config
+        save_config(cfg)
+
+        # Redirect with success message
+        return RedirectResponse(url="/ui/settings?saved=1", status_code=303)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save settings: {e}")
+
+
 @app.get("/ui/data/files")
 async def ui_list_data_files() -> JSONResponse:
     """Web UI: List available CSV data files.
