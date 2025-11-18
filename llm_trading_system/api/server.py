@@ -9,7 +9,7 @@ import secrets
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -61,6 +61,16 @@ BASE_DIR = Path(__file__).resolve().parent
 # Jinja2Templates enables autoescape by default for .html, .htm, .xml files
 # This prevents XSS attacks by automatically escaping user-provided content
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+# Add CSRF token generator to template context
+def _generate_csrf_token_for_template(csrf_protect: CsrfProtect = Depends()) -> str:
+    """Generate CSRF token for templates."""
+    return csrf_protect.generate_csrf()
+
+
+# Make csrf_token available in all templates
+templates.env.globals["csrf_token"] = lambda: ""  # Placeholder, will be set per request
+
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 # Global storage for backtest results (in-memory cache)
@@ -290,6 +300,9 @@ async def save_strategy(request: Request, name: str, config: dict[str, Any]) -> 
     Raises:
         HTTPException: If validation fails (400) or save error (500)
     """
+    # Validate CSRF token
+    await csrf_protect.validate_csrf(request)
+
     # Basic validation
     if "strategy_type" not in config:
         raise HTTPException(
@@ -352,22 +365,25 @@ async def run_backtest(request_obj: Request, request: dict[str, Any]) -> dict[st
     Raises:
         HTTPException: If validation fails (400) or backtest error (500)
     """
+    # Validate CSRF token
+    await csrf_protect.validate_csrf(request)
+
     # Validate required fields
-    if "config" not in request:
+    if "config" not in body:
         raise HTTPException(status_code=400, detail="Missing 'config' field")
 
-    if "data_path" not in request:
+    if "data_path" not in body:
         raise HTTPException(status_code=400, detail="Missing 'data_path' field")
 
     # Extract parameters with defaults
-    config = request["config"]
-    data_path_str = request["data_path"]
-    use_llm = request.get("use_llm", False)
-    llm_model = request.get("llm_model")
-    llm_url = request.get("llm_url")
-    initial_equity = request.get("initial_equity", 10_000.0)
-    fee_rate = request.get("fee_rate", 0.001)
-    slippage_bps = request.get("slippage_bps", 1.0)
+    config = body["config"]
+    data_path_str = body["data_path"]
+    use_llm = body.get("use_llm", False)
+    llm_model = body.get("llm_model")
+    llm_url = body.get("llm_url")
+    initial_equity = body.get("initial_equity", 10_000.0)
+    fee_rate = body.get("fee_rate", 0.001)
+    slippage_bps = body.get("slippage_bps", 1.0)
 
     # Validate data_path to prevent path traversal
     try:
@@ -429,29 +445,32 @@ async def create_live_session(request_obj: Request, request: dict[str, Any]) -> 
     Raises:
         HTTPException: If validation fails (400/422) or creation error (500)
     """
+    # Validate CSRF token
+    await csrf_protect.validate_csrf(request)
+
     # Extract and validate required fields
-    if "mode" not in request:
+    if "mode" not in body:
         raise HTTPException(status_code=400, detail="Missing 'mode' field")
 
-    if "symbol" not in request:
+    if "symbol" not in body:
         raise HTTPException(status_code=400, detail="Missing 'symbol' field")
 
-    if "strategy_config" not in request:
+    if "strategy_config" not in body:
         raise HTTPException(status_code=400, detail="Missing 'strategy_config' field")
 
     try:
         # Build LiveSessionConfig
         config = LiveSessionConfig(
-            mode=request["mode"],
-            symbol=request["symbol"],
-            timeframe=request.get("timeframe", "5m"),
-            strategy_config=request["strategy_config"],
-            llm_enabled=request.get("llm_enabled", False),
-            llm_config=request.get("llm_config"),
-            initial_deposit=request.get("initial_deposit", 10000.0),
-            fee_rate=request.get("fee_rate", 0.0005),
-            slippage_bps=request.get("slippage_bps", 1.0),
-            poll_interval=request.get("poll_interval", 1.0),
+            mode=body["mode"],
+            symbol=body["symbol"],
+            timeframe=body.get("timeframe", "5m"),
+            strategy_config=body["strategy_config"],
+            llm_enabled=body.get("llm_enabled", False),
+            llm_config=body.get("llm_config"),
+            initial_deposit=body.get("initial_deposit", 10000.0),
+            fee_rate=body.get("fee_rate", 0.0005),
+            slippage_bps=body.get("slippage_bps", 1.0),
+            poll_interval=body.get("poll_interval", 1.0),
         )
 
         # Create session
@@ -487,6 +506,9 @@ async def start_live_session(request: Request, session_id: str) -> dict[str, Any
     Raises:
         HTTPException: If session not found (404) or start error (500)
     """
+    # Validate CSRF token
+    await csrf_protect.validate_csrf(request)
+
     try:
         manager = get_session_manager()
         status = manager.start_session(session_id)
@@ -515,6 +537,9 @@ async def stop_live_session(request: Request, session_id: str) -> dict[str, Any]
     Raises:
         HTTPException: If session not found (404) or stop error (500)
     """
+    # Validate CSRF token
+    await csrf_protect.validate_csrf(request)
+
     try:
         manager = get_session_manager()
         status = manager.stop_session(session_id)
@@ -838,12 +863,17 @@ async def ui_index(request: Request) -> HTMLResponse:
         # Get live trading enabled from AppConfig
         live_enabled = app_cfg.exchange.live_trading_enabled
 
+        # Generate CSRF token
+        csrf_token, _ = csrf_protect.generate_csrf_tokens(request)
+
         return templates.TemplateResponse(
-            "index.html", {
+            "index.html",
+            {
                 "request": request,
                 "strategies": strategies,
                 "live_enabled": live_enabled,
-            }
+                "csrf_token": csrf_token,
+            },
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list configs: {e}")
@@ -905,8 +935,17 @@ async def ui_new_strategy(request: Request) -> HTMLResponse:
     Returns:
         HTML response with empty strategy form
     """
+    # Generate CSRF token
+    csrf_token, _ = csrf_protect.generate_csrf_tokens(request)
+
     return templates.TemplateResponse(
-        "strategy_form.html", {"request": request, "name": None, "config": {}}
+        "strategy_form.html",
+        {
+            "request": request,
+            "name": None,
+            "config": {},
+            "csrf_token": csrf_token,
+        },
     )
 
 
@@ -927,8 +966,18 @@ async def ui_edit_strategy(request: Request, name: str) -> HTMLResponse:
     """
     try:
         config = storage.load_config(name)
+
+        # Generate CSRF token
+        csrf_token, _ = csrf_protect.generate_csrf_tokens(request)
+
         return templates.TemplateResponse(
-            "strategy_form.html", {"request": request, "name": name, "config": config}
+            "strategy_form.html",
+            {
+                "request": request,
+                "name": name,
+                "config": config,
+                "csrf_token": csrf_token,
+            },
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Config '{name}' not found")
@@ -1084,6 +1133,9 @@ async def ui_delete_strategy(
     Raises:
         HTTPException: If config not found (404) or error deleting (500)
     """
+    # Validate CSRF token
+    await csrf_protect.validate_csrf(request)
+
     try:
         # CSRF validation (must be first to prevent processing invalid requests)
         _verify_csrf_token(request, csrf_token)
@@ -1119,6 +1171,9 @@ async def ui_backtest_form(request: Request, name: str) -> HTMLResponse:
         # Load AppConfig for default values
         app_cfg = load_app_config()
 
+        # Generate CSRF token
+        csrf_token, _ = csrf_protect.generate_csrf_tokens(request)
+
         return templates.TemplateResponse(
             "backtest_form.html",
             {
@@ -1133,6 +1188,7 @@ async def ui_backtest_form(request: Request, name: str) -> HTMLResponse:
                 "default_timeframe": app_cfg.exchange.default_timeframe,
                 "default_llm_model": app_cfg.llm.default_model,
                 "default_llm_url": app_cfg.llm.ollama_base_url,
+                "csrf_token": csrf_token,
             },
         )
     except FileNotFoundError:
@@ -1174,6 +1230,9 @@ async def ui_run_backtest(
     Raises:
         HTTPException: If config not found, data not found, or backtest fails
     """
+    # Validate CSRF token
+    await csrf_protect.validate_csrf(request)
+
     try:
         # CSRF validation (must be first to prevent processing invalid requests)
         _verify_csrf_token(request, csrf_token)
@@ -1547,6 +1606,9 @@ async def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
         # Check if Ollama connection failed (empty list could mean connection error)
         ollama_connection_error = len(ollama_models) == 0
 
+        # Generate CSRF token
+        csrf_token, _ = csrf_protect.generate_csrf_tokens(request)
+
         return templates.TemplateResponse(
             "settings.html",
             {
@@ -1555,6 +1617,7 @@ async def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
                 "ollama_models": ollama_models,
                 "ollama_connection_error": ollama_connection_error,
                 "saved": saved,
+                "csrf_token": csrf_token,
             },
         )
     except Exception as e:
@@ -1619,6 +1682,9 @@ async def save_settings(
     Returns:
         Redirect to settings page with saved=1 query parameter
     """
+    # Validate CSRF token
+    await csrf_protect.validate_csrf(request)
+
     try:
         import os
         from llm_trading_system.config.service import load_config, save_config

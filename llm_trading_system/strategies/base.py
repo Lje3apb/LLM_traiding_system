@@ -29,15 +29,61 @@ class Order:
     size: float
     meta: dict[str, Any] | None = None
 
+    def __post_init__(self):
+        """Validate order parameters (MEDIUM-4 fix)."""
+        import math
+
+        if not self.symbol or not isinstance(self.symbol, str):
+            raise ValueError(f"Order.symbol must be non-empty string, got {self.symbol}")
+
+        if not math.isfinite(self.size):
+            raise ValueError(f"Order.size must be finite, got {self.size}")
+
+        if self.size < 0:
+            raise ValueError(f"Order.size must be non-negative, got {self.size}")
+
+        # For flat orders, size should be 0
+        if self.side == "flat" and self.size != 0:
+            raise ValueError(f"Flat orders must have size=0, got {self.size}")
+
+        # Optional: Warn on very large sizes
+        if self.size > 1.0:
+            import logging
+            logging.getLogger(__name__).warning(f"Order.size {self.size} exceeds 100% of equity")
+
 
 @dataclass(slots=True)
 class AccountState:
-    """Represents current account metrics visible to strategies."""
+    """Represents current account metrics visible to strategies.
+
+    Fields:
+        equity: Current account equity in base currency
+        position_size: Current position size as fraction of equity
+                      (positive=long, negative=short, 0=flat)
+        entry_price: Entry price of current position, or None if position_size == 0
+        symbol: Trading symbol
+    """
 
     equity: float
     position_size: float
     entry_price: float | None
     symbol: str
+
+    def __post_init__(self):
+        """Validate account state (MEDIUM-5 fix)."""
+        import logging
+
+        # entry_price should be None when position_size == 0
+        if self.position_size == 0 and self.entry_price is not None:
+            logging.getLogger(__name__).warning(
+                f"AccountState has entry_price={self.entry_price} but position_size=0"
+            )
+
+        # entry_price should NOT be None when position_size != 0
+        if self.position_size != 0 and self.entry_price is None:
+            raise ValueError(
+                f"AccountState has position_size={self.position_size} but entry_price=None"
+            )
 
 
 class Strategy(ABC):
