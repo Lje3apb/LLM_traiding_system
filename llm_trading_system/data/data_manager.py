@@ -77,21 +77,40 @@ class DataManager:
         df_save.to_csv(filepath, index=False)
         logger.info(f"Saved {len(df_save)} rows to {filepath}")
 
-    def load_from_csv(self, filepath: Path) -> pd.DataFrame:
-        """Load DataFrame from CSV file.
+    def load_from_csv(self, filepath: Path, chunksize: int | None = None) -> pd.DataFrame:
+        """Load DataFrame from CSV file with optional chunked reading.
 
         Args:
             filepath: Path to CSV file
+            chunksize: Number of rows per chunk (None = load all at once)
+                      Recommended: 50000 for large files to reduce memory usage
 
         Returns:
             DataFrame with OHLCV data
         """
-        df = pd.read_csv(filepath)
-        logger.info(f"Loaded {len(df)} rows from {filepath}")
+        if chunksize is None:
+            # Load entire file at once (backward compatible)
+            df = pd.read_csv(filepath)
+            logger.info(f"Loaded {len(df)} rows from {filepath}")
+            return df
+
+        # Chunked reading for large files
+        logger.info(f"Loading {filepath} in chunks of {chunksize} rows")
+        chunks = []
+        total_rows = 0
+
+        for chunk in pd.read_csv(filepath, chunksize=chunksize):
+            chunks.append(chunk)
+            total_rows += len(chunk)
+
+        df = pd.concat(chunks, ignore_index=True)
+        logger.info(f"Loaded {total_rows} rows from {filepath} using chunked reading")
         return df
 
     def check_data_coverage(self, filepath: Path, start_date: str, end_date: str) -> bool:
         """Check if existing file covers the requested date range.
+
+        Optimized to only read first and last rows instead of entire file.
 
         Args:
             filepath: Path to existing CSV file
@@ -105,16 +124,20 @@ class DataManager:
             return False
 
         try:
-            df = pd.read_csv(filepath)
-            if df.empty:
+            # Read only first row to get start timestamp (memory efficient)
+            df_head = pd.read_csv(filepath, nrows=1)
+            if df_head.empty:
+                return False
+
+            # Read last few rows to get end timestamp
+            # Use chunked reading in reverse to find last valid row
+            df_tail = pd.read_csv(filepath, skiprows=lambda i: i > 0 and i < self._get_file_row_count(filepath) - 1)
+            if df_tail.empty:
                 return False
 
             # Parse timestamps
-            df["timestamp"] = pd.to_datetime(df["timestamp"])
-
-            # Get actual date range in file
-            file_start = df["timestamp"].min()
-            file_end = df["timestamp"].max()
+            file_start = pd.to_datetime(df_head["timestamp"].iloc[0])
+            file_end = pd.to_datetime(df_tail["timestamp"].iloc[-1])
 
             # Parse requested dates
             req_start = pd.to_datetime(start_date)
@@ -126,6 +149,18 @@ class DataManager:
         except Exception as e:
             logger.error(f"Error checking data coverage: {e}")
             return False
+
+    def _get_file_row_count(self, filepath: Path) -> int:
+        """Get row count of CSV file efficiently.
+
+        Args:
+            filepath: Path to CSV file
+
+        Returns:
+            Number of rows (excluding header)
+        """
+        with open(filepath, 'r') as f:
+            return sum(1 for _ in f) - 1  # -1 for header
 
     def merge_and_update(self, existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFrame:
         """Merge existing and new data, removing duplicates.

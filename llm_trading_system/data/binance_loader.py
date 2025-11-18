@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import logging
+import time
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -20,18 +21,21 @@ logger = logging.getLogger(__name__)
 
 
 class BinanceArchiveLoader:
-    """Reliable loader for data.binance.vision archive."""
+    """Reliable loader for data.binance.vision archive with rate limiting."""
 
-    def __init__(self, symbol: str, interval: str) -> None:
+    def __init__(self, symbol: str, interval: str, rate_limit_delay: float = 0.1) -> None:
         """Initialize loader.
 
         Args:
             symbol: Trading pair (e.g. BTCUSDT)
             interval: Candle interval (1m, 5m, 15m, 1h, 4h, 1d, etc.)
+            rate_limit_delay: Delay in seconds between API requests (default: 0.1)
+                             Recommended: 0.1-0.5 to avoid overwhelming the API
         """
         self.symbol = symbol.upper()
         self.interval = interval
         self.base_url = BINANCE_ARCHIVE_URL
+        self.rate_limit_delay = rate_limit_delay
 
     def _build_url(self, date: datetime) -> str:
         """Build URL for specific date.
@@ -166,7 +170,7 @@ class BinanceArchiveLoader:
     def download_range(
         self, start_date: str, end_date: str, progress_callback=None
     ) -> pd.DataFrame:
-        """Download data for date range.
+        """Download data for date range with rate limiting.
 
         Args:
             start_date: Start date (YYYY-MM-DD)
@@ -183,7 +187,10 @@ class BinanceArchiveLoader:
         end = datetime.strptime(end_date, "%Y-%m-%d")
 
         dates = [start + timedelta(days=i) for i in range((end - start).days + 1)]
-        logger.info(f"Downloading {len(dates)} days: {start_date} to {end_date}")
+        logger.info(
+            f"Downloading {len(dates)} days: {start_date} to {end_date} "
+            f"(rate limit: {self.rate_limit_delay}s between requests)"
+        )
 
         dfs = []
         for idx, date in enumerate(dates, 1):
@@ -197,8 +204,16 @@ class BinanceArchiveLoader:
                 df = self._download_day(date)
                 if df is not None:
                     dfs.append(df)
+
+                # Rate limiting: add delay between requests (except for last request)
+                if idx < len(dates) and self.rate_limit_delay > 0:
+                    time.sleep(self.rate_limit_delay)
+
             except Exception as e:
                 logger.error(f"Failed to download {date.date()}: {e}")
+                # Still apply rate limit even on error to avoid hammering the API
+                if idx < len(dates) and self.rate_limit_delay > 0:
+                    time.sleep(self.rate_limit_delay)
                 continue
 
         if not dfs:
@@ -215,7 +230,9 @@ class BinanceArchiveLoader:
         return df
 
 
-def fetch_klines_archive(symbol: str, interval: str, start_date: str, end_date: str) -> pd.DataFrame:
+def fetch_klines_archive(
+    symbol: str, interval: str, start_date: str, end_date: str, rate_limit_delay: float = 0.1
+) -> pd.DataFrame:
     """Convenient function for downloading data (synchronous).
 
     Args:
@@ -223,9 +240,10 @@ def fetch_klines_archive(symbol: str, interval: str, start_date: str, end_date: 
         interval: Candle interval
         start_date: Start date (YYYY-MM-DD)
         end_date: End date (YYYY-MM-DD)
+        rate_limit_delay: Delay in seconds between API requests (default: 0.1)
 
     Returns:
         DataFrame with historical data
     """
-    loader = BinanceArchiveLoader(symbol, interval)
+    loader = BinanceArchiveLoader(symbol, interval, rate_limit_delay=rate_limit_delay)
     return loader.download_range(start_date, end_date)
