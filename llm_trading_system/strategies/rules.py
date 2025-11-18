@@ -97,9 +97,9 @@ def _evaluate_expression(
     - "atr * 2.0"
     - "rsi - 30"
     - "rsi + -5" (negative numbers)
+    - "2 + 3 * 4" (evaluates as 2 + (3 * 4) = 14)
 
-    IMPORTANT: Only supports single binary operations (no operator precedence).
-    For complex expressions like "2 + 3 * 4", use parentheses or separate rules.
+    Implements correct operator precedence (* and / before + and -).
 
     Args:
         expr: Expression string
@@ -110,34 +110,27 @@ def _evaluate_expression(
     """
     expr = expr.strip()
 
-    # Try multiplication (highest precedence for simple cases)
-    if "*" in expr:
-        parts = expr.split("*", 1)
-        if len(parts) == 2:
-            left = _get_value_from_str(parts[0].strip(), indicators)
-            right = _get_value_from_str(parts[1].strip(), indicators)
-            if left is not None and right is not None:
-                return left * right
+    # Try addition first (lowest precedence)
+    # Skip '+' at start or after another operator
+    plus_positions = [i for i, c in enumerate(expr) if c == '+']
+    for pos in reversed(plus_positions):
+        # Skip if it's at the start (positive sign)
+        if pos == 0:
+            continue
+        # Skip if previous char is an operator
+        if pos > 0 and expr[pos - 1] in "+-*/":
+            continue
 
-    # Try division
-    if "/" in expr:
-        parts = expr.split("/", 1)
-        if len(parts) == 2:
-            left = _get_value_from_str(parts[0].strip(), indicators)
-            right = _get_value_from_str(parts[1].strip(), indicators)
-            if left is not None and right is not None and right != 0:
-                return left / right
+        # This '+' is an addition operator
+        left_str = expr[:pos].strip()
+        right_str = expr[pos + 1:].strip()
 
-    # Try addition
-    if "+" in expr:
-        parts = expr.split("+", 1)
-        if len(parts) == 2:
-            left = _get_value_from_str(parts[0].strip(), indicators)
-            right = _get_value_from_str(parts[1].strip(), indicators)
-            if left is not None and right is not None:
-                return left + right
+        left = _evaluate_expression(left_str, indicators)
+        right = _evaluate_expression(right_str, indicators)
+        if left is not None and right is not None:
+            return left + right
 
-    # Try subtraction
+    # Try subtraction (lowest precedence)
     # Handle both "a - b" and "a - -b" cases
     # Find the last occurrence of '-' that's not part of a number
     minus_positions = [i for i, c in enumerate(expr) if c == '-']
@@ -153,10 +146,33 @@ def _evaluate_expression(
         left_str = expr[:pos].strip()
         right_str = expr[pos + 1:].strip()
 
-        left = _get_value_from_str(left_str, indicators)
-        right = _get_value_from_str(right_str, indicators)
+        left = _evaluate_expression(left_str, indicators)
+        right = _evaluate_expression(right_str, indicators)
         if left is not None and right is not None:
             return left - right
+
+    # Try multiplication (higher precedence)
+    if "*" in expr:
+        parts = expr.split("*", 1)
+        if len(parts) == 2:
+            left = _evaluate_expression(parts[0].strip(), indicators)
+            right = _evaluate_expression(parts[1].strip(), indicators)
+            if left is not None and right is not None:
+                return left * right
+
+    # Try division (higher precedence)
+    if "/" in expr:
+        parts = expr.split("/", 1)
+        if len(parts) == 2:
+            left = _evaluate_expression(parts[0].strip(), indicators)
+            right = _evaluate_expression(parts[1].strip(), indicators)
+            if left is not None and right is not None:
+                if right == 0:
+                    # HIGH-7 fix: log division by zero
+                    import logging
+                    logging.getLogger(__name__).warning(f"Division by zero in expression: {expr}")
+                    return None
+                return left / right
 
     # No expression found, return simple value
     return _get_value_from_str(expr, indicators)

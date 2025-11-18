@@ -57,6 +57,7 @@ class IndicatorStrategyConfig:
     use_martingale: bool = False  # Enable martingale scaling
     martingale_mult: float = 1.0  # Martingale multiplier (1.0 = no martingale)
     max_martingale_step: int = 10  # Maximum martingale step to prevent blowup
+    max_position_size: float = 0.25  # Maximum position size as fraction (HIGH-1 fix)
 
     # Take Profit / Stop Loss parameters (percentage-based)
     tp_long_pct: float = 2.0  # Take profit for long positions (%)
@@ -94,6 +95,12 @@ class IndicatorStrategyConfig:
         if self.max_martingale_step < 0:
             raise ValueError(
                 f"max_martingale_step must be >= 0, got {self.max_martingale_step}"
+            )
+
+        # Validate max position size (HIGH-1 fix)
+        if self.max_position_size <= 0 or self.max_position_size > 1.0:
+            raise ValueError(
+                f"max_position_size must be in (0, 1], got {self.max_position_size}"
             )
 
         # Validate base size
