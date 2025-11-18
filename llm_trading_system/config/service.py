@@ -4,8 +4,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import Any, Dict
+
+from pydantic import ValidationError
 
 from llm_trading_system.config.models import (
     ApiConfig,
@@ -19,6 +22,7 @@ from llm_trading_system.config.models import (
 
 # Global cache for config (loaded once per process)
 _APP_CONFIG: AppConfig | None = None
+_CONFIG_LOCK = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +33,10 @@ def get_config_path() -> Path:
     Returns:
         Path to ~/.llm_trading/config.json
 
-    Creates the directory if it doesn't exist.
+    Creates the directory if it doesn't exist with secure permissions (0o700).
     """
     config_dir = Path.home() / ".llm_trading"
-    config_dir.mkdir(parents=True, exist_ok=True)
+    config_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     return config_dir / "config.json"
 
 
@@ -95,10 +99,12 @@ def _load_from_env() -> AppConfig:
 
     # Exchange configuration
     exchange_config = ExchangeConfig(
+        exchange_type=os.getenv("EXCHANGE_TYPE", "paper"),
         exchange_name=os.getenv("EXCHANGE_NAME", "binance"),
         api_key=os.getenv("EXCHANGE_API_KEY"),
         api_secret=os.getenv("EXCHANGE_API_SECRET"),
-        use_testnet=os.getenv("EXCHANGE_USE_TESTNET", "true").lower() in ("true", "1", "yes"),
+        # Support both BINANCE_TESTNET and EXCHANGE_USE_TESTNET for backward compatibility
+        use_testnet=os.getenv("BINANCE_TESTNET", os.getenv("EXCHANGE_USE_TESTNET", "true")).lower() in ("true", "1", "yes"),
         live_trading_enabled=os.getenv("EXCHANGE_LIVE_ENABLED", "false").lower() in ("true", "1", "yes"),
         default_symbol=os.getenv("DEFAULT_SYMBOL", "BTCUSDT"),
         default_timeframe=os.getenv("DEFAULT_TIMEFRAME", "5m"),
@@ -130,43 +136,57 @@ def load_config() -> AppConfig:
     2. If config.json exists, load from file
     3. Otherwise, create from environment variables and save to file
 
+    Thread-safe with double-checked locking pattern.
+
     Returns:
         AppConfig instance
 
     Raises:
-        ValueError: If config file is invalid JSON
-        pydantic.ValidationError: If config data doesn't match schema
+        ValueError: If config file is invalid JSON or validation fails
     """
     global _APP_CONFIG
 
-    # Return cached config if available
+    # Fast path: return cached config without lock (thread-safe read)
     if _APP_CONFIG is not None:
         return _APP_CONFIG
 
-    config_path = get_config_path()
-
-    # Load from file if it exists
-    if config_path.exists():
-        try:
-            logger.info("Loading configuration from %s", config_path)
-            with open(config_path, encoding="utf-8") as f:
-                data: Dict[str, Any] = json.load(f)
-            _APP_CONFIG = AppConfig(**data)
-            logger.info("Configuration loaded successfully")
+    # Slow path: load config with lock
+    with _CONFIG_LOCK:
+        # Double-check: another thread might have loaded it while we waited
+        if _APP_CONFIG is not None:
             return _APP_CONFIG
-        except (json.JSONDecodeError, ValueError) as exc:
-            logger.error("Failed to parse config file %s: %s", config_path, exc)
-            raise ValueError(f"Invalid configuration file: {exc}") from exc
 
-    # Create new config from environment variables
-    logger.info("No config file found, creating from environment variables")
-    _APP_CONFIG = _load_from_env()
+        config_path = get_config_path()
 
-    # Save to file for future use
-    save_config(_APP_CONFIG)
-    logger.info("Configuration saved to %s", config_path)
+        # Load from file if it exists
+        if config_path.exists():
+            try:
+                logger.info("Loading configuration from %s", config_path)
+                with open(config_path, encoding="utf-8") as f:
+                    data: Dict[str, Any] = json.load(f)
+                _APP_CONFIG = AppConfig(**data)
+                logger.info("Configuration loaded successfully")
+                return _APP_CONFIG
+            except json.JSONDecodeError as exc:
+                logger.error("Failed to parse config file %s: invalid JSON", config_path)
+                raise ValueError(f"Invalid JSON in configuration file: {exc}") from exc
+            except ValidationError as exc:
+                # Don't log exc directly - contains sensitive data
+                logger.error("Config validation failed: %d errors", exc.error_count())
+                raise ValueError("Configuration validation failed. Check config format.") from exc
+            except Exception as exc:
+                logger.error("Unexpected error loading config: %s", type(exc).__name__)
+                raise ValueError(f"Failed to load configuration: {exc}") from exc
 
-    return _APP_CONFIG
+        # Create new config from environment variables
+        logger.info("No config file found, creating from environment variables")
+        _APP_CONFIG = _load_from_env()
+
+        # Save to file for future use
+        save_config(_APP_CONFIG)
+        logger.info("Configuration saved to %s", config_path)
+
+        return _APP_CONFIG
 
 
 def save_config(app_config: AppConfig) -> None:

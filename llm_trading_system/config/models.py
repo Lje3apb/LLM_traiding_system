@@ -134,6 +134,11 @@ class RiskConfig(BaseModel):
 class ExchangeConfig(BaseModel):
     """Exchange connection and live trading configuration."""
 
+    exchange_type: str = Field(
+        default="paper",
+        description="Exchange type: 'paper' for simulation, 'binance' for real exchange"
+    )
+
     exchange_name: str = Field(
         default="binance",
         description="Exchange name (binance, etc.)"
@@ -144,7 +149,7 @@ class ExchangeConfig(BaseModel):
 
     use_testnet: bool = Field(
         default=True,
-        description="Use testnet instead of mainnet"
+        description="Use testnet instead of mainnet (Binance testnet vs mainnet)"
     )
     live_trading_enabled: bool = Field(
         default=False,
