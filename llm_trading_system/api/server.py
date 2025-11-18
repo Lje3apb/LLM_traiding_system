@@ -1363,6 +1363,7 @@ async def save_settings(
     edge_gamma: float = Form(...),
     base_k: float = Form(...),
     # Exchange settings
+    exchange_type: str = Form(...),
     exchange_name: str = Form(...),
     exchange_api_key: str = Form(""),
     exchange_api_secret: str = Form(""),
@@ -1431,6 +1432,7 @@ async def save_settings(
         cfg.risk.base_k = base_k
 
         # Update Exchange settings (preserve secrets if empty)
+        cfg.exchange.exchange_type = exchange_type
         cfg.exchange.exchange_name = exchange_name
         if exchange_api_key:
             cfg.exchange.api_key = exchange_api_key
