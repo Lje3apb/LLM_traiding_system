@@ -91,6 +91,83 @@
 
 ---
 
+### Декабрь 2025 - Версия 0.3.1 (UNIFIED APPCONFIG + UI INTEGRATION)
+
+**Главная новинка: Централизованная конфигурация с полной интеграцией в UI**
+
+1. **Unified AppConfig Service** (`llm_trading_system/config/`):
+   - ✅ `models.py` - Pydantic v2 модели конфигурации (type-safe)
+   - ✅ `service.py` - Сервис загрузки/сохранения с singleton кэшем
+   - ✅ Конфигурация в `~/.llm_trading/config.json`
+   - ✅ Секции: API keys, LLM, Market, Risk, Exchange, UI defaults
+   - ✅ Обратная совместимость с `os.getenv()`
+
+2. **Settings UI Page** (`/ui/settings`):
+   - ✅ Comprehensive settings page для управления AppConfig
+   - ✅ 6 секций: LLM & Models, API Keys, Market, Risk, Exchange, UI Defaults
+   - ✅ Dynamic model selector с `list_ollama_models()` функцией
+   - ✅ Secret preservation (API ключи не перезаписываются если поле пустое)
+   - ✅ Success message после сохранения
+   - ✅ Link в navigation bar
+
+3. **Backtest UI Integration**:
+   - ✅ Дефолтные значения из `cfg.ui`:
+     * `default_backtest_equity` - начальный капитал
+     * `default_commission` - комиссия биржи
+     * `default_slippage` - проскальзывание
+   - ✅ LLM настройки из `cfg.llm`:
+     * `default_model` - модель по умолчанию
+     * `ollama_base_url` - URL Ollama сервера
+   - ✅ Автоматическое заполнение форм при открытии
+
+4. **Live/Paper Trading UI Integration**:
+   - ✅ Дефолтные значения из `cfg.ui` и `cfg.exchange`:
+     * `default_initial_deposit` - начальный депозит для paper trading
+     * `default_symbol` - торговый символ
+     * `default_timeframe` - таймфрейм
+   - ✅ Проверка `live_trading_enabled`:
+     * Если `false` → real mode заблокирован (disabled)
+     * Warning message со ссылкой на Settings
+   - ✅ JavaScript логика управления полем депозита:
+     * Paper mode: редактируемое поле с дефолтом
+     * Real mode: readonly, "Balance will be fetched from exchange"
+
+5. **Global UI Updates**:
+   - ✅ Все роуты (`/ui/`, `/ui/live`, backtest) используют AppConfig
+   - ✅ Удалены hardcoded `os.getenv("EXCHANGE_LIVE_ENABLED")`
+   - ✅ Consistent использование `cfg.exchange.live_trading_enabled`
+
+6. **CLI Integration** (уже было реализовано ранее):
+   - ✅ `full_cycle_cli.py` использует AppConfig для LLM и risk настроек
+   - ✅ Поддержка override через command-line аргументы
+
+7. **list_ollama_models() Function**:
+   - ✅ Утилита для получения списка моделей из Ollama API
+   - ✅ Endpoint: `/api/tags` с парсингом JSON
+   - ✅ Robust error handling (timeout, connection, HTTP errors)
+   - ✅ Используется в Settings UI для dynamic dropdown
+   - ✅ 11 unit тестов в `test_ollama_models_list.py`
+
+8. **Integration Tests** (`tests/test_config_integration.py`):
+   - ✅ 7 новых тестов для AppConfig интеграции
+   - ✅ `test_load_config_returns_app_config` - проверка дефолтов
+   - ✅ `test_save_and_load_config_round_trip` - сохранение/загрузка
+   - ✅ `test_backtest_ui_uses_app_config_defaults` - backtest UI
+   - ✅ `test_live_trading_ui_uses_app_config` - live UI дефолты
+   - ✅ `test_live_trading_ui_respects_live_enabled_flag` - блокировка real mode
+   - ✅ `test_live_trading_ui_allows_real_mode_when_enabled` - разрешение real mode
+   - ✅ `test_settings_page_uses_list_ollama_models` - Settings UI
+
+**Преимущества централизованной конфигурации**:
+- Single source of truth для всех настроек системы
+- Type-safe конфигурация с Pydantic validation
+- Удобное UI для управления (не нужно редактировать .env)
+- Automatic persistence в JSON файл
+- Быстрая загрузка с singleton кэшированием
+- Простая миграция между окружениями (copy config.json)
+
+---
+
 ### Ноябрь 2025 - Версия 0.2.0 (АГРЕССИВНЫЙ РЕЖИМ)
 
 **Основные улучшения**:
@@ -130,6 +207,11 @@
 /home/user/LLM_traiding_system/
 ├── llm_trading_system/              # Основной пакет
 │   ├── __init__.py                  # Инициализация пакета
+│   ├── config/                      # 🆕 Unified configuration service
+│   │   ├── __init__.py
+│   │   ├── models.py                # Pydantic v2 configuration models
+│   │   ├── service.py               # Load/save service with singleton cache
+│   │   └── README.md                # Configuration documentation
 │   ├── core/                        # Основная бизнес-логика
 │   │   ├── __init__.py
 │   │   ├── position_sizing.py       # Расчет размера позиции на основе вероятностей режимов
@@ -139,7 +221,7 @@
 │   │   └── llm_infra/               # Абстракция провайдеров LLM
 │   │       ├── __init__.py
 │   │       ├── types.py             # Определения протоколов для провайдеров LLM
-│   │       ├── providers_ollama.py  # Провайдер Ollama (локальные модели)
+│   │       ├── providers_ollama.py  # 🔄 Провайдер Ollama + list_ollama_models()
 │   │       ├── providers_openai.py  # OpenAI-совместимый провайдер
 │   │       ├── client_sync.py       # Синхронный LLM клиент с повторными попытками
 │   │       ├── client_async.py      # Асинхронный LLM клиент
@@ -174,16 +256,17 @@
 │   │   └── live_service.py          # 🆕 LiveSessionManager с WebSocket и REST API
 │   ├── api/                         # Web UI и REST API
 │   │   ├── __init__.py
-│   │   ├── server.py                # FastAPI сервер с REST API и Web UI (updated)
+│   │   ├── server.py                # 🔄 FastAPI сервер с AppConfig integration
 │   │   ├── templates/               # Jinja2 шаблоны HTML
-│   │   │   ├── base.html            # Базовый шаблон с навигацией
+│   │   │   ├── base.html            # 🔄 Базовый шаблон с Settings link
 │   │   │   ├── index.html           # 🔄 Главная страница (расширенная таблица)
 │   │   │   ├── strategy_form.html   # 🔄 Форма стратегии (с live hints)
-│   │   │   ├── backtest_form.html   # Форма запуска бэктеста
+│   │   │   ├── backtest_form.html   # 🔄 Форма запуска (AppConfig defaults)
 │   │   │   ├── backtest_result.html # 🔄 Результаты (с Next Actions panel)
-│   │   │   └── live_trading.html    # 🆕 Unified Live Trading UI (paper + real)
+│   │   │   ├── live_trading.html    # 🔄 Live Trading UI (AppConfig defaults)
+│   │   │   └── settings.html        # 🆕 Settings page для AppConfig управления
 │   │   └── static/                  # Статические файлы (CSS, JS)
-│   │       └── live_trading.js      # 🆕 JavaScript для Live Trading UI
+│   │       └── live_trading.js      # 🔄 JavaScript для Live Trading UI (deposit logic)
 │   └── cli/                         # Инструменты командной строки
 │       ├── __init__.py
 │       ├── full_cycle_cli.py        # CLI полного интеграционного теста
@@ -195,21 +278,25 @@
 ├── examples/                        # Примеры конфигураций
 │   ├── README.md                    # Руководство по примерам
 │   ├── night_cat_samurai_strategy.json  # Пример стратегии
-│   └── run_night_cat_samurai.py     # Скрипт запуска примера
+│   ├── run_night_cat_samurai.py     # Скрипт запуска примера
+│   └── list_ollama_models.py        # 🆕 Пример использования list_ollama_models()
 ├── tests/                           # Набор тестов
 │   ├── __init__.py
 │   ├── _test_support.py             # Утилиты и хелперы для тестов
 │   ├── test_position_sizing.py      # Юнит-тесты размера позиции
 │   ├── test_full_cycle.py           # Полный интеграционный тест
 │   ├── test_ollama.py               # Тесты провайдера Ollama
+│   ├── test_ollama_models_list.py   # 🆕 Тесты list_ollama_models function (11 tests)
 │   ├── test_onchain_apis.py         # Тесты on-chain API
 │   ├── test_fetch_onchain.py        # Тесты получения on-chain данных
 │   ├── test_ui_smoke.py             # Smoke тесты Web UI
-│   ├── test_ui_live_integration.py  # 🆕 UI integration тесты для Live Trading
-│   ├── test_exchange_paper.py       # 🆕 Тесты paper trading client
-│   ├── test_live_trading_engine.py  # 🆕 Тесты LiveTradingEngine
-│   ├── test_live_api.py             # 🆕 Тесты REST API для live sessions
-│   └── test_llm_regime_wrapped.py   # 🆕 Тесты LLM regime wrapped strategy
+│   ├── test_ui_settings.py          # 🆕 Тесты Settings UI page (5 tests)
+│   ├── test_ui_live_integration.py  # UI integration тесты для Live Trading
+│   ├── test_config_integration.py   # 🆕 Тесты AppConfig integration (7 tests)
+│   ├── test_exchange_paper.py       # Тесты paper trading client
+│   ├── test_live_trading_engine.py  # Тесты LiveTradingEngine
+│   ├── test_live_api.py             # Тесты REST API для live sessions
+│   └── test_llm_regime_wrapped.py   # Тесты LLM regime wrapped strategy
 ├── setup.py                         # Установка и настройка пакета
 ├── requirements.txt                 # Python зависимости
 ├── Dockerfile                       # Определение Docker контейнера
