@@ -23,9 +23,12 @@
    - Retry с экспоненциальной задержкой
    - Парсинг JSON ответов
 
-3. **position_sizing.py** - расчет размера позиции
+3. **position_sizing.py** - расчет размера позиции (AGGRESSIVE режим)
    - Конвертация prob_bull/prob_bear в мультипликаторы
-   - Учет рисков (liquidity, news)
+   - Non-linear edge amplification (EDGE_GAIN=2.5, EDGE_GAMMA=0.7)
+   - Confidence-based scaling (low: 0.7x, medium: 1.0x, high: 1.3x)
+   - Trend strength alignment (0.8-1.2x boost)
+   - Учет рисков (liquidity, news) с penalty до 30%
    - Финальный размер позиции
 
 ## Быстрый старт
@@ -149,11 +152,14 @@ Waiting for LLM response (this may take 10-60 seconds)...
 
 [STEP 5] Calculating position sizing...
 --------------------------------------------------------------------------------
-✓ Position sizing calculated
-  Long multiplier (k_long):  1.7234
-  Short multiplier (k_short): 0.4567
-  Long position size:  0.017234 (1.72% capital)
-  Short position size: 0.004567 (0.46% capital)
+✓ Position sizing calculated (AGGRESSIVE mode)
+  Long multiplier (k_long):  1.3370
+  Short multiplier (k_short): 0.0000
+  Long position size:  0.013370 (1.34% capital)
+  Short position size: 0.000000 (0.00% capital)
+
+Note: New aggressive position sizing with non-linear edge amplification
+      Multipliers can now range from 0.0 to k_max (default 2.0)
 
 ================================================================================
 FINAL RESULTS
@@ -165,9 +171,9 @@ Horizon: 4 hours
 
 REGIME ASSESSMENT:
   Regime:      BULL
-  Confidence:  MEDIUM
-  Bull prob:   68.0%
-  Bear prob:   32.0%
+  Confidence:  HIGH (now encouraged: 0.6-0.85 probabilities)
+  Bull prob:   75.0% (less conservative than before)
+  Bear prob:   25.0%
 
 MARKET SCORES:
   Global sentiment:   +0.42
@@ -177,12 +183,18 @@ MARKET SCORES:
   Liquidity risk:     0.25
   News risk:          0.18
 
-POSITION SIZING:
+POSITION SIZING (AGGRESSIVE):
   Base size:          1.0% capital
-  Long multiplier:    1.7234x
-  Short multiplier:   0.4567x
-  → LONG position:    1.72% capital
-  → SHORT position:   0.46% capital
+  Neutral baseline:   0.5 (BASE_K)
+  Long multiplier:    1.34x (aggressive amplification)
+  Short multiplier:   0.00x (strong directional bias)
+  → LONG position:    1.34% capital
+  → SHORT position:   0.00% capital
+
+  Algorithm: edge_eff = (|prob_bull - 0.5| * 2.5) ^ 0.7
+             edge_eff *= confidence_scale * trend_scale
+             k_long = 0.5 + edge_eff (if bullish)
+             k_short = 0.5 - edge_eff (if bullish)
 
 REASONING:
   Positive institutional flows and strong network metrics support bullish outlook.
@@ -196,8 +208,14 @@ KEY FACTORS:
 ================================================================================
 TRADING RECOMMENDATION:
 ================================================================================
-FAVOR LONG positions (multiplier: 1.72x)
+FAVOR LONG positions (multiplier: 1.34x)
+AVOID SHORT positions (multiplier: 0.00x - strong bullish bias)
 ================================================================================
+
+NOTE: New aggressive regime estimator produces:
+- More confident probabilities (0.6-0.85 instead of ~0.5)
+- Non-linear position sizing amplification
+- Stronger directional bias (shorts disabled in bull regime)
 
 ✓ Full cycle test completed successfully!
 ```
@@ -206,14 +224,17 @@ FAVOR LONG positions (multiplier: 1.72x)
 
 LLM должна вернуть JSON со следующей структурой:
 
+**ВАЖНО**: После обновления системного промпта, LLM теперь поощряется выводить
+более уверенные вероятности (0.6-0.85), а не консервативные значения ~0.5.
+
 ```json
 {
   "horizon_hours": 4,
   "base_asset": "BTCUSDT",
-  "prob_bull": 0.68,
-  "prob_bear": 0.32,
+  "prob_bull": 0.75,  // Теперь может быть 0.6-0.85 при aligned signals
+  "prob_bear": 0.25,
   "regime_label": "bull",
-  "confidence_level": "medium",
+  "confidence_level": "high",  // "low" (0.7x), "medium" (1.0x), или "high" (1.3x)
   "scores": {
     "global_sentiment": 0.42,
     "btc_sentiment": 0.55,
@@ -302,14 +323,19 @@ ollama pull llama3.2
 2. **Добавить бэктестинг**
    - Собрать исторические данные
    - Проверить качество предсказаний
+   - Сравнить новую агрессивную стратегию со старой
 
 3. **Настроить мониторинг**
    - Логировать все запросы
    - Отслеживать качество ответов LLM
+   - Следить за распределением confidence_level (должно быть больше "medium" и "high")
 
-4. **Оптимизировать параметры**
-   - Подобрать оптимальные k_max, base_size
-   - Настроить risk throttling
+4. **Оптимизировать параметры агрессивности**
+   - **EDGE_GAIN** (default 2.5): увеличить для более агрессивных позиций
+   - **EDGE_GAMMA** (default 0.7): уменьшить для более линейного роста
+   - **BASE_K** (default 0.5): увеличить до 0.6-0.7 если позиции слишком малы
+   - **k_max** (default 2.0): максимальный мультипликатор
+   - Настроить risk throttling (liquidity_risk, news_risk)
 
 ## Дополнительная информация
 
