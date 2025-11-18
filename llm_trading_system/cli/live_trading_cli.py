@@ -408,16 +408,29 @@ def main() -> int:
             logger.info(f"Creating LLM client: {args.llm_provider}/{args.llm_model}")
             llm_client = create_llm_client(args.llm_model, args.llm_provider)
 
+            # Load AppConfig for risk defaults
+            from llm_trading_system.config import load_config
+            cfg = load_config()
+
+            # Use CLI args if explicitly different from defaults, otherwise use AppConfig
+            # This ensures Settings UI configuration is respected
+            k_max_value = args.k_max if args.k_max != 2.0 else cfg.risk.k_max
+            temperature_value = args.temperature if args.temperature != 0.1 else cfg.llm.temperature
+
             regime_config = LLMRegimeConfig(
                 horizon_bars=args.horizon_bars,
                 base_size=strategy_config.base_size,
-                k_max=args.k_max,
-                temperature=args.temperature,
+                k_max=k_max_value,
+                temperature=temperature_value,
                 base_asset=strategy_config.symbol.replace("/", ""),
                 use_onchain_data=False,  # Disable for live (slow)
                 use_news_data=False,  # Disable for live (slow)
             )
 
+            logger.info(
+                f"LLM regime config: k_max={k_max_value:.2f}, temperature={temperature_value:.2f} "
+                f"(using AppConfig defaults for unspecified parameters)"
+            )
             logger.info("Wrapping strategy with LLM regime filter")
             strategy = LLMRegimeWrappedStrategy(
                 inner_strategy=indicator_strategy,
