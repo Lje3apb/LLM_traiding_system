@@ -177,30 +177,6 @@ async def delete_strategy(name: str) -> dict[str, str]:
         raise HTTPException(status_code=500, detail=f"Failed to delete config: {e}")
 
 
-class BacktestRequest:
-    """Request model for backtest endpoint."""
-
-    def __init__(
-        self,
-        config: dict[str, Any],
-        data_path: str,
-        use_llm: bool = False,
-        llm_model: str | None = None,
-        llm_url: str | None = None,
-        initial_equity: float = 10_000.0,
-        fee_rate: float = 0.001,
-        slippage_bps: float = 1.0,
-    ):
-        self.config = config
-        self.data_path = data_path
-        self.use_llm = use_llm
-        self.llm_model = llm_model
-        self.llm_url = llm_url
-        self.initial_equity = initial_equity
-        self.fee_rate = fee_rate
-        self.slippage_bps = slippage_bps
-
-
 @app.post("/backtest")
 async def run_backtest(request: dict[str, Any]) -> dict[str, Any]:
     """Run a backtest for a given configuration and data.

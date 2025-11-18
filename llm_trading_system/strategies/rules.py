@@ -232,12 +232,14 @@ def _evaluate_condition(
         if prev_indicators is None:
             return False
 
+        # Use same logic for previous values as for current values
         prev_left = prev_indicators.get(condition.left)
         if prev_left is None:
             return False
 
+        # Support expressions for right side in previous values too
         if isinstance(condition.right, str):
-            prev_right = prev_indicators.get(condition.right)
+            prev_right = _evaluate_expression(condition.right, prev_indicators)
             if prev_right is None:
                 return False
         else:
@@ -250,12 +252,14 @@ def _evaluate_condition(
         if prev_indicators is None:
             return False
 
+        # Use same logic for previous values as for current values
         prev_left = prev_indicators.get(condition.left)
         if prev_left is None:
             return False
 
+        # Support expressions for right side in previous values too
         if isinstance(condition.right, str):
-            prev_right = prev_indicators.get(condition.right)
+            prev_right = _evaluate_expression(condition.right, prev_indicators)
             if prev_right is None:
                 return False
         else:

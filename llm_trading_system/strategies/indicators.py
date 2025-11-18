@@ -234,7 +234,10 @@ def adx(
     closes: Sequence[float],
     length: int = 14,
 ) -> float | None:
-    """Calculate Average Directional Index (simplified version).
+    """Calculate Average Directional Index.
+
+    ADX measures trend strength on a scale of 0-100.
+    This is a proper implementation that smooths DX values with EMA.
 
     Args:
         highs: High prices (oldest first)
@@ -245,13 +248,14 @@ def adx(
     Returns:
         ADX value (0-100) or None if insufficient data
     """
-    if length <= 0 or len(highs) < length * 2:
+    # Need at least length*2 + 1 bars for proper ADX calculation
+    if length <= 0 or len(highs) < length * 2 + 1:
         return None
 
     if len(highs) != len(lows) or len(highs) != len(closes):
         return None
 
-    # Calculate directional movement
+    # Calculate directional movement and true range for all bars
     plus_dm = []
     minus_dm = []
     true_ranges = []
@@ -277,31 +281,41 @@ def adx(
         low_close = abs(lows[i] - closes[i - 1])
         true_ranges.append(max(high_low, high_close, low_close))
 
-    if len(plus_dm) < length:
+    if len(plus_dm) < length * 2:
         return None
 
-    # Smooth the values
-    smoothed_plus_dm = sum(plus_dm[-length:]) / length
-    smoothed_minus_dm = sum(minus_dm[-length:]) / length
-    smoothed_tr = sum(true_ranges[-length:]) / length
+    # Calculate DX values for smoothing
+    dx_values = []
 
-    if smoothed_tr == 0:
-        return 0.0
+    # For each window of data, calculate DX
+    for i in range(length - 1, len(plus_dm)):
+        # Smooth DM and TR over the period
+        smoothed_plus_dm = sum(plus_dm[i - length + 1 : i + 1]) / length
+        smoothed_minus_dm = sum(minus_dm[i - length + 1 : i + 1]) / length
+        smoothed_tr = sum(true_ranges[i - length + 1 : i + 1]) / length
 
-    # Calculate DI+ and DI-
-    plus_di = 100 * smoothed_plus_dm / smoothed_tr
-    minus_di = 100 * smoothed_minus_dm / smoothed_tr
+        if smoothed_tr == 0:
+            dx_values.append(0.0)
+            continue
 
-    # Calculate DX
-    di_sum = plus_di + minus_di
-    if di_sum == 0:
-        return 0.0
+        # Calculate DI+ and DI-
+        plus_di = 100 * smoothed_plus_dm / smoothed_tr
+        minus_di = 100 * smoothed_minus_dm / smoothed_tr
 
-    dx = 100 * abs(plus_di - minus_di) / di_sum
+        # Calculate DX
+        di_sum = plus_di + minus_di
+        if di_sum == 0:
+            dx_values.append(0.0)
+        else:
+            dx = 100 * abs(plus_di - minus_di) / di_sum
+            dx_values.append(dx)
 
-    # ADX is typically the EMA of DX, but for simplicity we return DX
-    # A full implementation would smooth this further
-    return dx
+    # ADX is the EMA of DX values
+    if len(dx_values) < length:
+        return None
+
+    adx_value = ema(dx_values, length)
+    return adx_value
 
 
 # ============================================================================
