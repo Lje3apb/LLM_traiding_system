@@ -622,7 +622,10 @@ async def ui_index(request: Request) -> HTMLResponse:
         HTML response with strategy list
     """
     try:
-        import os
+        from llm_trading_system.config.service import load_config as load_app_config
+
+        # Load AppConfig
+        app_cfg = load_app_config()
 
         strategy_names = storage.list_configs()
 
@@ -657,8 +660,8 @@ async def ui_index(request: Request) -> HTMLResponse:
                     'symbol': 'BTCUSDT',
                 })
 
-        # Check if live trading is enabled
-        live_enabled = os.getenv("EXCHANGE_LIVE_ENABLED", "false").lower() == "true"
+        # Get live trading enabled from AppConfig
+        live_enabled = app_cfg.exchange.live_trading_enabled
 
         return templates.TemplateResponse(
             "index.html", {
@@ -682,10 +685,13 @@ async def ui_live_trading(request: Request) -> HTMLResponse:
         HTML response with live trading UI
     """
     try:
-        import os
+        from llm_trading_system.config.service import load_config as load_app_config
 
-        # Check if live trading is enabled
-        live_enabled = os.getenv("EXCHANGE_LIVE_ENABLED", "false").lower() == "true"
+        # Load AppConfig
+        app_cfg = load_app_config()
+
+        # Get live trading enabled from AppConfig
+        live_enabled = app_cfg.exchange.live_trading_enabled
 
         # Get strategies
         strategies = storage.list_configs()
@@ -702,6 +708,10 @@ async def ui_live_trading(request: Request) -> HTMLResponse:
                 "symbols": symbols,
                 "timeframes": timeframes,
                 "live_enabled": live_enabled,
+                # Defaults from AppConfig
+                "default_initial_deposit": app_cfg.ui.default_initial_deposit,
+                "default_symbol": app_cfg.exchange.default_symbol,
+                "default_timeframe": app_cfg.exchange.default_timeframe,
             },
         )
     except Exception as e:
@@ -907,10 +917,28 @@ async def ui_backtest_form(request: Request, name: str) -> HTMLResponse:
         HTTPException: If config not found (404)
     """
     try:
+        from llm_trading_system.config.service import load_config as load_app_config
+
         config = storage.load_config(name)
+
+        # Load AppConfig for default values
+        app_cfg = load_app_config()
+
         return templates.TemplateResponse(
             "backtest_form.html",
-            {"request": request, "name": name, "config": config},
+            {
+                "request": request,
+                "name": name,
+                "config": config,
+                # Default values from AppConfig
+                "default_backtest_equity": app_cfg.ui.default_backtest_equity,
+                "default_commission": app_cfg.ui.default_commission,
+                "default_slippage": app_cfg.ui.default_slippage,
+                "default_symbol": app_cfg.exchange.default_symbol,
+                "default_timeframe": app_cfg.exchange.default_timeframe,
+                "default_llm_model": app_cfg.llm.default_model,
+                "default_llm_url": app_cfg.llm.ollama_base_url,
+            },
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Config '{name}' not found")
@@ -972,9 +1000,10 @@ async def ui_run_backtest(
             "config": config,
         }
 
-        # Check if live trading is enabled
-        import os
-        live_enabled = os.getenv("EXCHANGE_LIVE_ENABLED", "false").lower() == "true"
+        # Get live trading enabled from AppConfig
+        from llm_trading_system.config.service import load_config as load_app_config
+        app_cfg = load_app_config()
+        live_enabled = app_cfg.exchange.live_trading_enabled
 
         # Render results
         return templates.TemplateResponse(

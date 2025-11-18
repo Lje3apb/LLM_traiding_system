@@ -70,6 +70,7 @@ function handleModeChange(event) {
     currentMode = event.target.value;
     const depositInput = document.getElementById('initial-deposit');
     const depositLabel = document.getElementById('deposit-label');
+    const depositHelp = document.getElementById('deposit-help');
     const refreshBtn = document.getElementById('refresh-balance-btn');
 
     if (currentMode === 'paper') {
@@ -78,13 +79,19 @@ function handleModeChange(event) {
         depositInput.disabled = false;
         depositLabel.textContent = 'Initial Deposit (USDT)';
         refreshBtn.style.display = 'none';
-        depositInput.value = '10000';
+        depositHelp.textContent = 'Enter your simulated starting balance for paper trading';
+
+        // Restore default value if not already set by user
+        if (!depositInput.value || depositInput.value === '0') {
+            depositInput.value = depositInput.getAttribute('data-default') || '10000';
+        }
     } else {
         // Real mode: readonly, fetch live balance
         depositInput.setAttribute('readonly', 'readonly');
         depositInput.disabled = true;
         depositLabel.textContent = 'Live Balance (USDT)';
         refreshBtn.style.display = 'inline-block';
+        depositHelp.textContent = 'Balance will be fetched from exchange. Click Refresh to update.';
 
         // Show confirmation warning for real trading
         if (!currentSessionId) {
