@@ -4,16 +4,19 @@ This module provides:
 - User management with password hashing
 - Session-based authentication
 - FastAPI dependencies for protecting endpoints
+- WebSocket token generation and validation
 """
 
 from __future__ import annotations
 
+import os
 import secrets
 from dataclasses import dataclass
 from typing import Optional
 
 from fastapi import HTTPException, Request
 from fastapi.responses import RedirectResponse
+from itsdangerous import SignatureExpired, URLSafeTimedSerializer
 from passlib.context import CryptContext
 
 # Password hashing context using bcrypt
@@ -269,3 +272,88 @@ async def optional_auth(request: Request) -> Optional[User]:
         User object if logged in, None otherwise
     """
     return get_current_user(request)
+
+
+# ============================================================================
+# WebSocket Token Generation and Validation
+# ============================================================================
+
+# WebSocket token serializer (uses same secret as SessionMiddleware)
+# Tokens are time-limited and signed to prevent tampering
+_WS_SECRET_KEY = os.getenv(
+    "SESSION_SECRET_KEY",
+    "default-dev-secret-key-change-in-production-12345678901234567890"
+)
+_ws_token_serializer = URLSafeTimedSerializer(_WS_SECRET_KEY, salt="websocket-auth")
+
+
+def generate_ws_token(user_id: str) -> str:
+    """Generate a signed WebSocket authentication token for a user.
+
+    The token contains the user_id and is time-limited for security.
+    Tokens expire after 1 hour.
+
+    Args:
+        user_id: User ID to encode in the token
+
+    Returns:
+        Signed token string that can be validated with validate_ws_token()
+
+    Example:
+        >>> token = generate_ws_token("user_001")
+        >>> # Client connects with: ws://host/ws/live/session_id?token={token}
+    """
+    return _ws_token_serializer.dumps({"user_id": user_id})
+
+
+def validate_ws_token(token: str) -> Optional[str]:
+    """Validate a WebSocket authentication token and extract user_id.
+
+    This function verifies that:
+    1. The token signature is valid (not tampered with)
+    2. The token has not expired (max_age: 1 hour)
+    3. The user_id in the token corresponds to an active user
+
+    Args:
+        token: Token string from WebSocket query parameters
+
+    Returns:
+        User ID if token is valid, None otherwise
+
+    Security Notes:
+        - Tokens expire after 3600 seconds (1 hour)
+        - Invalid signatures are rejected
+        - Expired tokens are rejected
+        - Tokens for inactive users are rejected
+
+    Example:
+        >>> user_id = validate_ws_token(token)
+        >>> if user_id:
+        ...     # Token valid, allow WebSocket connection
+        ... else:
+        ...     # Token invalid, reject connection
+    """
+    if not token:
+        return None
+
+    try:
+        # Verify signature and expiration (max_age: 1 hour)
+        data = _ws_token_serializer.loads(token, max_age=3600)
+        user_id = data.get("user_id")
+
+        if not user_id:
+            return None
+
+        # Verify user exists and is active
+        for user in _USERS_DB.values():
+            if user.user_id == user_id and user.is_active:
+                return user_id
+
+        return None
+
+    except SignatureExpired:
+        # Token expired
+        return None
+    except Exception:
+        # Invalid token format or signature
+        return None

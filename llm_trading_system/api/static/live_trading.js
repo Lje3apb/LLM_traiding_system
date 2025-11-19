@@ -406,13 +406,21 @@ async function stopSession() {
 function connectWebSocket() {
     if (!currentSessionId) return;
 
+    // Check if authentication token is available
+    if (!window.WS_AUTH_TOKEN) {
+        console.error('WebSocket authentication token not available');
+        showError('Cannot connect to real-time updates: authentication token missing');
+        return;
+    }
+
     // Clean up existing connection
     disconnectWebSocket();
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/live/${currentSessionId}`;
+    // Add authentication token as query parameter
+    const wsUrl = `${protocol}//${window.location.host}/ws/live/${currentSessionId}?token=${encodeURIComponent(window.WS_AUTH_TOKEN)}`;
 
-    console.log('Connecting to WebSocket:', wsUrl);
+    console.log('Connecting to WebSocket:', wsUrl.replace(/token=[^&]+/, 'token=***'));
     ws = new WebSocket(wsUrl);
 
     ws.onopen = function() {
@@ -437,6 +445,14 @@ function connectWebSocket() {
     ws.onclose = function(event) {
         console.log('WebSocket disconnected', event.code, event.reason);
         ws = null;
+
+        // Check for authentication failure (close code 4401)
+        if (event.code === 4401) {
+            console.error('WebSocket authentication failed:', event.reason);
+            showError('WebSocket authentication failed. Please refresh the page and try again.');
+            addLogEntry('WebSocket connection rejected: Invalid or expired authentication token', 'error');
+            return; // Do not attempt reconnection
+        }
 
         // Attempt reconnection if session is still running
         if (sessionStatus === 'running' && wsReconnectAttempts < 5) {

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -20,9 +21,11 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from llm_trading_system.api.auth import (
     authenticate_user,
+    generate_ws_token,
     get_current_user,
     optional_auth,
     require_auth,
+    validate_ws_token,
 )
 from llm_trading_system.data.data_manager import get_data_manager
 from llm_trading_system.engine.backtest_service import run_backtest_from_config_dict
@@ -42,6 +45,107 @@ app = FastAPI(
     version="0.1.0",
     description="HTTP JSON API for backtesting and strategy management",
 )
+
+# ============================================================================
+# Middleware Configuration
+# ============================================================================
+# IMPORTANT: Middleware order matters!
+# - Middleware is executed in REVERSE order for responses
+# - First added = outermost layer = executes first for requests, last for responses
+#
+# Order (outer to inner):
+# 1. CORS - Must be first to handle preflight requests
+# 2. Security Headers - Applied to all responses
+# 3. Session Management - Handles authentication
+# 4. CSRF Middleware - Added via @app.middleware decorator below
+# 5. Application Logic
+# ============================================================================
+
+# ============================================================================
+# CORS Configuration (Cross-Origin Resource Sharing)
+# ============================================================================
+# Controls which origins can access the API
+# Default: No CORS (empty allow_origins list)
+# To enable CORS for specific origins, set CORS_ORIGINS environment variable:
+#   CORS_ORIGINS="http://localhost:3000,https://trading.example.com"
+
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "")
+allowed_origins = [origin.strip() for origin in CORS_ORIGINS.split(",") if origin.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,  # Empty by default - no CORS
+    allow_credentials=True,  # Allow cookies and authorization headers
+    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, PUT, DELETE, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
+
+# ============================================================================
+# Security Headers Middleware
+# ============================================================================
+# Adds security headers to all HTTP responses to protect against common attacks
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """Add security headers to all responses.
+
+    Security headers added:
+    - Strict-Transport-Security (HSTS): Forces HTTPS for 1 year
+    - X-Frame-Options: Prevents clickjacking attacks
+    - X-Content-Type-Options: Prevents MIME-sniffing attacks
+    - Referrer-Policy: Controls referrer information leakage
+    - X-XSS-Protection: Enables browser XSS filtering (legacy browsers)
+    - Content-Security-Policy: Restricts resource loading (defense in depth)
+
+    Note: HSTS header only added in production (when ENV=production)
+    """
+    response = await call_next(request)
+
+    # Strict-Transport-Security (HSTS)
+    # Only set in production to avoid issues in development
+    if os.getenv("ENV", "").lower() == "production":
+        # max-age=31536000: 1 year in seconds
+        # includeSubDomains: Apply to all subdomains
+        # preload: Allow inclusion in browser HSTS preload lists
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+
+    # X-Frame-Options: DENY
+    # Prevents page from being displayed in iframe/frame/embed/object
+    # Protects against clickjacking attacks
+    response.headers["X-Frame-Options"] = "DENY"
+
+    # X-Content-Type-Options: nosniff
+    # Prevents browsers from MIME-sniffing responses
+    # Forces browser to respect Content-Type header
+    response.headers["X-Content-Type-Options"] = "nosniff"
+
+    # Referrer-Policy: same-origin
+    # Only send referrer for same-origin requests
+    # Prevents leaking sensitive information in referrer header
+    response.headers["Referrer-Policy"] = "same-origin"
+
+    # X-XSS-Protection: 1; mode=block (legacy, but good for old browsers)
+    # Enables browser XSS filtering and blocks page if attack detected
+    # Modern browsers use CSP instead, but this adds defense in depth
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+
+    # Content-Security-Policy (CSP)
+    # Restrictive CSP for defense in depth
+    # default-src 'self': Only load resources from same origin
+    # script-src: Allow inline scripts and unpkg.com for charts library
+    # style-src: Allow inline styles
+    # img-src: Allow images from same origin and data URIs
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "font-src 'self'; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'"
+    )
+
+    return response
 
 # ============================================================================
 # Session Management (Authentication)
@@ -91,27 +195,92 @@ async def unauthorized_handler(request: Request, exc: HTTPException):
 
 
 # ============================================================================
-# Rate Limiting (DoS Protection)
+# Rate Limiting (DoS Protection & Abuse Prevention)
 # ============================================================================
 
-# Initialize rate limiter
+# Initialize rate limiter with global defaults
 # Uses IP address as identifier for rate limiting
 # Note: Use os.devnull to prevent .env reading and avoid Windows encoding issues
 limiter = Limiter(
     key_func=get_remote_address,
     storage_uri="memory://",  # Use in-memory storage (suitable for single-instance deployment)
     config_filename=os.devnull,  # Use null device to prevent .env reading (cross-platform fix for Windows encoding)
+    default_limits=["1000/hour"],  # Global fallback: 1000 requests per hour per IP
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Rate limit tiers:
-# - UI GET endpoints: 100/minute (viewing pages)
-# - UI POST endpoints: 30/minute (form submissions)
-# - API GET endpoints: 100/minute (reading data)
-# - API POST/DELETE endpoints: 30/minute (modifying data)
-# - Heavy operations: 3-5/minute (backtest, download)
-# - Settings save: 10/minute (configuration changes)
+# ============================================================================
+# Rate Limit Strategy (by endpoint category)
+# ============================================================================
+#
+# CATEGORY                      | LIMIT                  | USE CASE
+# ------------------------------|------------------------|---------------------------
+# Public/Light                  | 60/minute              | Health check, public info
+# Standard Business (Read)      | 1000/hour              | GET strategies, sessions, data
+# Standard Business (Write)     | 30/minute;500/hour     | Save/delete strategies, settings
+# Authentication                | 20/minute;100/hour     | Login attempts (brute force protection)
+# Heavy Operations              | 10/minute;100/day      | Backtest, live session creation
+# Very Heavy Operations         | 3/minute;20/day        | Data download from exchanges
+# Session Control               | 50/minute              | Start/stop trading sessions
+# Chart Data                    | 60/minute              | Chart data requests
+# File Listing                  | 60/minute              | File listing operations
+#
+# Combined Limits (e.g., "10/minute;100/day"):
+#   - First limit (10/minute) prevents burst abuse
+#   - Second limit (100/day) prevents sustained abuse
+#   - Both must be satisfied for request to succeed
+#
+# ============================================================================
+# Endpoint Rate Limit Configuration Table
+# ============================================================================
+#
+# | METHOD | ENDPOINT                                    | RATE LIMIT             | CATEGORY                   | AUTH   |
+# |--------|---------------------------------------------|------------------------|----------------------------|--------|
+# | GET    | /health                                     | 60/minute              | Public/Light               | No     |
+# | GET    | /                                           | 60/minute              | Public/Light               | No     |
+# | GET    | /ui/login                                   | 60/minute              | Public/Light               | No     |
+# | POST   | /ui/login                                   | 20/minute;100/hour     | Authentication             | No     |
+# | GET    | /ui/logout                                  | 60/minute              | Public/Light               | Yes    |
+# | GET    | /strategies                                 | 1000/hour              | Standard Business (Read)   | No     |
+# | GET    | /strategies/{name}                          | 1000/hour              | Standard Business (Read)   | No     |
+# | POST   | /strategies/{name}                          | 30/minute;500/hour     | Standard Business (Write)  | No     |
+# | DELETE | /strategies/{name}                          | 30/minute;500/hour     | Standard Business (Write)  | No     |
+# | GET    | /api/live/sessions                          | 1000/hour              | Standard Business (Read)   | No     |
+# | POST   | /api/live/sessions                          | 10/minute;100/day      | Heavy Operation            | Yes    |
+# | GET    | /api/live/sessions/{id}                     | 1000/hour              | Standard Business (Read)   | No     |
+# | POST   | /api/live/sessions/{id}/start               | 50/minute              | Session Control            | Yes    |
+# | POST   | /api/live/sessions/{id}/stop                | 50/minute              | Session Control            | Yes    |
+# | GET    | /api/live/sessions/{id}/trades              | 1000/hour              | Standard Business (Read)   | No     |
+# | GET    | /api/live/sessions/{id}/bars                | 1000/hour              | Standard Business (Read)   | No     |
+# | GET    | /api/live/sessions/{id}/account             | 1000/hour              | Standard Business (Read)   | No     |
+# | WS     | /ws/live/{id}                               | None (WebSocket)       | Real-time Data             | No     |
+# | POST   | /backtest                                   | 10/minute;100/day      | Heavy Operation            | No     |
+# | GET    | /ui/                                        | 1000/hour              | Standard Business (Read)   | Yes    |
+# | GET    | /ui/live                                    | 1000/hour              | Standard Business (Read)   | Yes    |
+# | GET    | /ui/strategies/new                          | 1000/hour              | Standard Business (Read)   | Yes    |
+# | GET    | /ui/strategies/{name}/edit                  | 1000/hour              | Standard Business (Read)   | Yes    |
+# | POST   | /ui/strategies/{name}/save                  | 30/minute;500/hour     | Standard Business (Write)  | Yes    |
+# | POST   | /ui/strategies/{name}/delete                | 30/minute;500/hour     | Standard Business (Write)  | Yes    |
+# | GET    | /ui/strategies/{name}/backtest              | 1000/hour              | Standard Business (Read)   | Yes    |
+# | POST   | /ui/strategies/{name}/backtest              | 10/minute;100/day      | Heavy Operation            | Yes    |
+# | GET    | /ui/backtest/{name}/chart-data              | 60/minute              | Chart Data                 | Yes    |
+# | POST   | /ui/strategies/{name}/download_data         | 3/minute;20/day        | Very Heavy Operation       | Yes    |
+# | GET    | /ui/settings                                | 1000/hour              | Standard Business (Read)   | Yes    |
+# | POST   | /ui/settings                                | 30/minute;500/hour     | Standard Business (Write)  | Yes    |
+# | GET    | /ui/data/files                              | 60/minute              | File Listing               | Yes    |
+#
+# Total Endpoints: 32 (31 HTTP + 1 WebSocket)
+# Authenticated Endpoints: 19
+# Public Endpoints: 13
+#
+# Notes:
+# - Global default fallback: 1000/hour (applied if no specific limit is set)
+# - WebSocket endpoint (/ws/live/{id}) does not use rate limiting (managed by connection limits)
+# - All rate limits are per-IP address
+# - Combined limits (e.g., "10/minute;100/day") require both conditions to be satisfied
+#
+# ============================================================================
 
 # ============================================================================
 # Setup templates and static files
@@ -290,7 +459,7 @@ def _sanitize_error_message(e: Exception) -> str:
 
 
 @app.get("/health")
-@limiter.limit("200/minute")  # Generous limit for monitoring
+@limiter.limit("60/minute")  # PUBLIC/LIGHT: Health check monitoring
 async def health_check(request: Request) -> dict[str, str]:
     """Health check endpoint.
 
@@ -301,7 +470,7 @@ async def health_check(request: Request) -> dict[str, str]:
 
 
 @app.get("/strategies")
-@limiter.limit("100/minute")  # API read operations
+@limiter.limit("1000/hour")  # STANDARD BUSINESS (READ): List strategies
 async def list_strategies(request: Request) -> dict[str, list[str]]:
     """List all available strategy configurations.
 
@@ -316,7 +485,7 @@ async def list_strategies(request: Request) -> dict[str, list[str]]:
 
 
 @app.get("/strategies/{name}")
-@limiter.limit("100/minute")  # API read operations
+@limiter.limit("1000/hour")  # STANDARD BUSINESS (READ): Get strategy
 async def get_strategy(request: Request, name: str) -> dict[str, Any]:
     """Load a strategy configuration by name.
 
@@ -339,7 +508,7 @@ async def get_strategy(request: Request, name: str) -> dict[str, Any]:
 
 
 @app.post("/strategies/{name}")
-@limiter.limit("30/minute")  # API write operations
+@limiter.limit("30/minute;500/hour")  # STANDARD BUSINESS (WRITE): Save strategy
 async def save_strategy(request: Request, name: str, config: dict[str, Any]) -> dict[str, str]:
     """Save or update a strategy configuration.
 
@@ -372,7 +541,7 @@ async def save_strategy(request: Request, name: str, config: dict[str, Any]) -> 
 
 
 @app.delete("/strategies/{name}")
-@limiter.limit("30/minute")  # API write operations
+@limiter.limit("30/minute;500/hour")  # STANDARD BUSINESS (WRITE): Delete strategy
 async def delete_strategy(request: Request, name: str) -> dict[str, str]:
     """Delete a strategy configuration.
 
@@ -395,7 +564,7 @@ async def delete_strategy(request: Request, name: str) -> dict[str, str]:
 
 
 @app.post("/backtest")
-@limiter.limit("5/minute")  # Heavy operation - strict limit
+@limiter.limit("10/minute;100/day")  # HEAVY OPERATION: Run backtest (CPU intensive)
 async def run_backtest(request_obj: Request, request: dict[str, Any]) -> dict[str, Any]:
     """Run a backtest for a given configuration and data.
 
@@ -471,7 +640,7 @@ async def run_backtest(request_obj: Request, request: dict[str, Any]) -> dict[st
 
 
 @app.post("/api/live/sessions")
-@limiter.limit("20/minute")  # Live trading session creation
+@limiter.limit("10/minute;100/day")  # HEAVY OPERATION: Create live trading session
 async def create_live_session(request_obj: Request, request: dict[str, Any], user=Depends(require_auth)) -> dict[str, Any]:
     """Create a new live/paper trading session.
 
@@ -539,7 +708,7 @@ async def create_live_session(request_obj: Request, request: dict[str, Any], use
 
 
 @app.post("/api/live/sessions/{session_id}/start")
-@limiter.limit("50/minute")  # Session control
+@limiter.limit("50/minute")  # SESSION CONTROL: Start trading session
 async def start_live_session(request: Request, session_id: str, user=Depends(require_auth)) -> dict[str, Any]:
     """Start a live/paper trading session.
 
@@ -567,7 +736,7 @@ async def start_live_session(request: Request, session_id: str, user=Depends(req
 
 
 @app.post("/api/live/sessions/{session_id}/stop")
-@limiter.limit("50/minute")  # Session control
+@limiter.limit("50/minute")  # SESSION CONTROL: Stop trading session
 async def stop_live_session(request: Request, session_id: str, user=Depends(require_auth)) -> dict[str, Any]:
     """Stop a live/paper trading session.
 
@@ -593,7 +762,7 @@ async def stop_live_session(request: Request, session_id: str, user=Depends(requ
 
 
 @app.get("/api/live/sessions/{session_id}")
-@limiter.limit("100/minute")  # API read operations
+@limiter.limit("1000/hour")  # STANDARD BUSINESS (READ): Get session status
 async def get_live_session_status(request: Request, session_id: str) -> dict[str, Any]:
     """Get status and current state of a live/paper trading session.
 
@@ -618,7 +787,7 @@ async def get_live_session_status(request: Request, session_id: str) -> dict[str
 
 
 @app.get("/api/live/sessions")
-@limiter.limit("100/minute")  # API read operations
+@limiter.limit("1000/hour")  # STANDARD BUSINESS (READ): List sessions
 async def list_live_sessions(request: Request) -> dict[str, list[dict[str, Any]]]:
     """List all live/paper trading sessions.
 
@@ -636,7 +805,7 @@ async def list_live_sessions(request: Request) -> dict[str, list[dict[str, Any]]
 
 
 @app.get("/api/live/sessions/{session_id}/trades")
-@limiter.limit("100/minute")  # API read operations
+@limiter.limit("1000/hour")  # STANDARD BUSINESS (READ): Get session trades
 async def get_live_session_trades(request: Request, session_id: str, limit: int = 100) -> dict[str, Any]:
     """Get trades from a live/paper trading session.
 
@@ -663,7 +832,7 @@ async def get_live_session_trades(request: Request, session_id: str, limit: int 
 
 
 @app.get("/api/live/sessions/{session_id}/bars")
-@limiter.limit("100/minute")  # API read operations
+@limiter.limit("1000/hour")  # STANDARD BUSINESS (READ): Get session bars
 async def get_live_session_bars(request: Request, session_id: str, limit: int = 500) -> dict[str, Any]:
     """Get recent bars from a live/paper trading session.
 
@@ -690,7 +859,7 @@ async def get_live_session_bars(request: Request, session_id: str, limit: int = 
 
 
 @app.get("/api/live/sessions/{session_id}/account")
-@limiter.limit("100/minute")  # API read operations
+@limiter.limit("1000/hour")  # STANDARD BUSINESS (READ): Get account snapshot
 async def get_live_session_account(request: Request, session_id: str) -> dict[str, Any]:
     """Get account snapshot from a live/paper trading session.
 
@@ -722,29 +891,114 @@ async def get_live_session_account(request: Request, session_id: str) -> dict[st
 
 
 @app.websocket("/ws/live/{session_id}")
-async def live_session_websocket(websocket: WebSocket, session_id: str) -> None:
+async def live_session_websocket(websocket: WebSocket, session_id: str, token: str = "") -> None:
     """WebSocket endpoint for real-time live session updates.
 
+    Security Features:
+    - Token-based authentication (query parameter ?token=...)
+    - Origin validation (prevents CSRF attacks)
+    - Connection limits per user
+    - Message rate limiting
+    - Permission checks (users can only access their own sessions)
+    - Message validation (pydantic schemas)
+    - Resource cleanup on disconnect
+
     Streams:
-    - state_update: Current session state (periodically)
+    - state_update: Current session state (periodically every 2 seconds)
     - trade: New trade executed
     - bar: New bar completed
+    - pong: Response to ping messages
 
     Args:
         websocket: WebSocket connection
-        session_id: Session ID
+        session_id: Trading session ID to monitor
+        token: Authentication token (required query parameter)
 
-    Message format:
+    Query Parameters:
+        token: WebSocket authentication token generated by generate_ws_token()
+
+    Incoming Message Format:
         {
-            "type": "state_update" | "trade" | "bar",
+            "type": "ping" | "subscribe" | "unsubscribe",
             "payload": {...}
         }
+
+    Outgoing Message Format:
+        {
+            "type": "pong" | "state_update" | "trade" | "bar" | "error",
+            "payload": {...},
+            "message": "error message (for type=error)"
+        }
+
+    Security:
+        - Requires valid authentication token (expires after 1 hour)
+        - Invalid tokens → close with code 4401
+        - Invalid origin → close with code 1008
+        - Too many connections → close with code 1008
+        - No permission → close with code 1008
+        - Maximum connection duration: 1 hour
+        - Rate limit: 10 messages/second, 100 messages/minute per user
     """
+    from llm_trading_system.api.services.websocket_security import (
+        check_connection_limit,
+        check_message_rate_limit,
+        check_session_permission,
+        register_connection,
+        unregister_connection,
+        validate_incoming_message,
+        validate_origin,
+    )
+
+    # ========================================================================
+    # Step 1: Validate authentication token BEFORE accepting connection
+    # ========================================================================
+    user_id = validate_ws_token(token)
+
+    if not user_id:
+        logger.warning(f"WebSocket auth failed: invalid token for session {session_id}")
+        await websocket.close(code=4401, reason="Invalid or expired authentication token")
+        return
+
+    # ========================================================================
+    # Step 2: Validate Origin header (prevent CSRF attacks)
+    # ========================================================================
+    if not validate_origin(websocket):
+        logger.warning(f"WebSocket rejected: invalid origin for user {user_id}")
+        await websocket.close(code=1008, reason="Origin not allowed")
+        return
+
+    # ========================================================================
+    # Step 3: Check connection limit (prevent resource exhaustion)
+    # ========================================================================
+    if not check_connection_limit(user_id, websocket):
+        logger.warning(f"WebSocket rejected: connection limit for user {user_id}")
+        await websocket.close(code=1008, reason="Too many connections")
+        return
+
+    # ========================================================================
+    # Step 4: Get session manager and check permissions
+    # ========================================================================
+    manager = get_session_manager()
+
+    # Check if user has permission to access this session
+    if not check_session_permission(user_id, session_id, manager):
+        logger.warning(f"WebSocket rejected: user {user_id} has no permission for session {session_id}")
+        await websocket.close(code=1008, reason="Access denied")
+        return
+
+    # ========================================================================
+    # Step 5: All checks passed - accept connection
+    # ========================================================================
     await websocket.accept()
 
+    # Store user_id in websocket state for later use
+    websocket.state.user_id = user_id
+
+    # Register connection for tracking
+    register_connection(user_id, websocket)
+
     try:
-        # Get session manager and validate session exists
-        manager = get_session_manager()
+        # Get initial session status
         try:
             status = manager.get_status(session_id)
         except KeyError:
@@ -757,80 +1011,122 @@ async def live_session_websocket(websocket: WebSocket, session_id: str) -> None:
         # Send initial state
         await websocket.send_json({"type": "state_update", "payload": status})
 
-        # Keep connection alive and send updates periodically
+        # Connection management
         import asyncio
         import time
 
-        # Connection timeout: 1 hour maximum
-        MAX_CONNECTION_TIME = 3600  # seconds
+        MAX_CONNECTION_TIME = 3600  # 1 hour maximum
         connection_start = time.time()
 
+        # Main message loop
         while True:
             # Check connection age
             connection_age = time.time() - connection_start
             if connection_age > MAX_CONNECTION_TIME:
                 await websocket.send_json({
                     "type": "error",
-                    "message": "Connection timeout - maximum session duration (1 hour) exceeded. Please reconnect."
+                    "message": "Connection timeout - maximum duration (1 hour) exceeded. Please reconnect."
                 })
                 break
 
-            # Check if client sent any messages (for keepalive/ping)
+            # Wait for client messages with timeout
             try:
-                message = await asyncio.wait_for(
+                raw_message = await asyncio.wait_for(
                     websocket.receive_text(), timeout=2.0
                 )
-                # Handle ping/pong or other client messages if needed
-                if message == "ping":
+
+                # ============================================================
+                # Rate limiting check for incoming messages
+                # ============================================================
+                if not check_message_rate_limit(user_id):
+                    # Rate limit exceeded - close connection
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Rate limit exceeded. Connection closed."
+                    })
+                    await websocket.close(code=1008, reason="Rate limit exceeded")
+                    break
+
+                # ============================================================
+                # Validate message structure
+                # ============================================================
+                message = validate_incoming_message(raw_message)
+                if not message:
+                    # Invalid message - send error but don't close connection
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Invalid message format. Must be JSON with 'type' and optional 'payload'."
+                    })
+                    continue
+
+                # ============================================================
+                # Handle different message types
+                # ============================================================
+                if message.type == "ping":
                     await websocket.send_json({"type": "pong"})
+
+                elif message.type == "subscribe":
+                    # Future: implement subscription management
+                    pass
+
+                elif message.type == "unsubscribe":
+                    # Future: implement subscription management
+                    pass
+
             except asyncio.TimeoutError:
-                # No message from client, send state update
+                # No message from client - send periodic update
                 pass
 
-            # Get current state and send update
+            # ============================================================
+            # Send periodic state update
+            # ============================================================
             try:
                 status = manager.get_status(session_id)
                 await websocket.send_json({"type": "state_update", "payload": status})
             except KeyError:
                 # Session was deleted
                 await websocket.send_json(
-                    {
-                        "type": "error",
-                        "message": f"Session {session_id} was deleted",
-                    }
+                    {"type": "error", "message": f"Session {session_id} was deleted"}
                 )
                 break
             except Exception as e:
-                # Error getting status
+                # Error getting status - log and send sanitized error
+                logger.error(f"Error getting session status: {e}", exc_info=True)
                 await websocket.send_json(
-                    {
-                        "type": "error",
-                        "message": f"Error getting status: {type(e).__name__}: {e}",
-                    }
+                    {"type": "error", "message": "Error fetching session status"}
                 )
 
-            # Sleep before next update (2 seconds)
+            # Sleep before next update
             await asyncio.sleep(2.0)
 
     except WebSocketDisconnect:
-        # Client disconnected
-        pass
+        # Client disconnected - normal cleanup
+        logger.info(f"WebSocket client disconnected: user {user_id}, session {session_id}")
+
     except Exception as e:
-        # Unexpected error
+        # Unexpected error - log and send sanitized error
+        logger.error(f"WebSocket error: {e}", exc_info=True)
         try:
             await websocket.send_json(
-                {
-                    "type": "error",
-                    "message": f"WebSocket error: {type(e).__name__}: {e}",
-                }
+                {"type": "error", "message": "Internal server error"}
             )
         except:
             pass
+
     finally:
+        # ====================================================================
+        # Cleanup resources
+        # ====================================================================
+        # Unregister connection
+        unregister_connection(user_id, websocket)
+
+        # Close connection if still open
         try:
             await websocket.close()
         except:
             pass
+
+        logger.info(f"WebSocket closed: user {user_id}, session {session_id}")
 
 
 # ============================================================================
@@ -839,7 +1135,7 @@ async def live_session_websocket(websocket: WebSocket, session_id: str) -> None:
 
 
 @app.get("/", response_class=RedirectResponse)
-@limiter.limit("100/minute")  # UI page views
+@limiter.limit("60/minute")  # PUBLIC/LIGHT: Root redirect
 async def root(request: Request) -> RedirectResponse:
     """Redirect root to Web UI.
 
@@ -855,7 +1151,7 @@ async def root(request: Request) -> RedirectResponse:
 
 
 @app.get("/ui/login", response_class=HTMLResponse)
-@limiter.limit("100/minute")  # UI page views
+@limiter.limit("60/minute")  # PUBLIC/LIGHT: Login page view
 async def login_page(
     request: Request,
     next: str = "/ui/",
@@ -891,7 +1187,7 @@ async def login_page(
 
 
 @app.post("/ui/login")
-@limiter.limit("20/minute")  # Login attempts - moderate limit to prevent brute force
+@limiter.limit("20/minute;100/hour")  # AUTHENTICATION: Login attempts (brute force protection)
 async def login(
     request: Request,
     csrf_token: str = Form(...),
@@ -933,7 +1229,7 @@ async def login(
 
 
 @app.get("/ui/logout")
-@limiter.limit("100/minute")  # Logout - generous limit
+@limiter.limit("60/minute")  # PUBLIC/LIGHT: Logout
 async def logout(request: Request) -> RedirectResponse:
     """Web UI: Logout endpoint.
 
@@ -953,7 +1249,7 @@ async def logout(request: Request) -> RedirectResponse:
 
 
 @app.get("/ui/", response_class=HTMLResponse)
-@limiter.limit("100/minute")  # UI page views
+@limiter.limit("1000/hour")  # STANDARD BUSINESS (READ): Strategy list page
 async def ui_index(request: Request, user=Depends(require_auth)) -> HTMLResponse:
     """Web UI: List all strategy configurations.
 
@@ -1023,15 +1319,20 @@ async def ui_index(request: Request, user=Depends(require_auth)) -> HTMLResponse
 
 
 @app.get("/ui/live", response_class=HTMLResponse)
-@limiter.limit("100/minute")  # UI page views
+@limiter.limit("1000/hour")  # STANDARD BUSINESS (READ): Live trading page
 async def ui_live_trading(request: Request, user=Depends(require_auth)) -> HTMLResponse:
     """Web UI: Live trading page for paper and real trading.
 
     Args:
         request: FastAPI request object
+        user: Authenticated user (injected by require_auth dependency)
 
     Returns:
         HTML response with live trading UI
+
+    Note:
+        Generates a WebSocket authentication token for the user to enable
+        real-time updates via WebSocket connection. Token expires after 1 hour.
     """
     try:
         from llm_trading_system.config.service import load_config as load_app_config
@@ -1049,6 +1350,10 @@ async def ui_live_trading(request: Request, user=Depends(require_auth)) -> HTMLR
         symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT"]
         timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
 
+        # Generate WebSocket authentication token for this user
+        # Token is time-limited (1 hour) and signed to prevent tampering
+        ws_token = generate_ws_token(user.user_id)
+
         return templates.TemplateResponse(
             "live_trading.html",
             {
@@ -1061,6 +1366,8 @@ async def ui_live_trading(request: Request, user=Depends(require_auth)) -> HTMLR
                 "default_initial_deposit": app_cfg.ui.default_initial_deposit,
                 "default_symbol": app_cfg.exchange.default_symbol,
                 "default_timeframe": app_cfg.exchange.default_timeframe,
+                # WebSocket authentication token
+                "ws_token": ws_token,
             },
         )
     except Exception as e:
@@ -1068,7 +1375,7 @@ async def ui_live_trading(request: Request, user=Depends(require_auth)) -> HTMLR
 
 
 @app.get("/ui/strategies/new", response_class=HTMLResponse)
-@limiter.limit("100/minute")  # UI page views
+@limiter.limit("1000/hour")  # STANDARD BUSINESS (READ): New strategy form
 async def ui_new_strategy(request: Request, user=Depends(require_auth)) -> HTMLResponse:
     """Web UI: Show form to create a new strategy.
 
@@ -1093,7 +1400,7 @@ async def ui_new_strategy(request: Request, user=Depends(require_auth)) -> HTMLR
 
 
 @app.get("/ui/strategies/{name}/edit", response_class=HTMLResponse)
-@limiter.limit("100/minute")  # UI page views
+@limiter.limit("1000/hour")  # STANDARD BUSINESS (READ): Edit strategy form
 async def ui_edit_strategy(request: Request, name: str, user=Depends(require_auth)) -> HTMLResponse:
     """Web UI: Show form to edit an existing strategy.
 
@@ -1129,7 +1436,7 @@ async def ui_edit_strategy(request: Request, name: str, user=Depends(require_aut
 
 
 @app.post("/ui/strategies/{name}/save")
-@limiter.limit("30/minute")  # UI form submissions
+@limiter.limit("30/minute;500/hour")  # STANDARD BUSINESS (WRITE): Save strategy
 async def ui_save_strategy(
     request: Request,
     name: str,
@@ -1258,7 +1565,7 @@ async def ui_save_strategy(
 
 
 @app.post("/ui/strategies/{name}/delete")
-@limiter.limit("30/minute")  # UI form submissions
+@limiter.limit("30/minute;500/hour")  # STANDARD BUSINESS (WRITE): Delete strategy
 async def ui_delete_strategy(
     request: Request,
     name: str,
@@ -1292,7 +1599,7 @@ async def ui_delete_strategy(
 
 
 @app.get("/ui/strategies/{name}/backtest", response_class=HTMLResponse)
-@limiter.limit("100/minute")  # UI page views
+@limiter.limit("1000/hour")  # STANDARD BUSINESS (READ): Backtest form
 async def ui_backtest_form(request: Request, name: str, user=Depends(require_auth)) -> HTMLResponse:
     """Web UI: Show backtest form for a strategy.
 
@@ -1341,7 +1648,7 @@ async def ui_backtest_form(request: Request, name: str, user=Depends(require_aut
 
 
 @app.post("/ui/strategies/{name}/backtest", response_class=HTMLResponse)
-@limiter.limit("5/minute")  # Heavy operation - strict limit
+@limiter.limit("10/minute;100/day")  # HEAVY OPERATION: Run backtest (CPU intensive)
 async def ui_run_backtest(
     request: Request,
     name: str,
@@ -1443,7 +1750,7 @@ async def ui_run_backtest(
 
 
 @app.get("/ui/backtest/{name}/chart-data")
-@limiter.limit("60/minute")  # Chart data requests
+@limiter.limit("60/minute")  # CHART DATA: Backtest chart data
 async def ui_get_backtest_chart_data(request: Request, name: str) -> JSONResponse:
     """Web UI: Get chart data for backtest visualization.
 
@@ -1571,7 +1878,7 @@ async def ui_get_backtest_chart_data(request: Request, name: str) -> JSONRespons
 
 
 @app.post("/ui/strategies/{name}/download_data")
-@limiter.limit("3/minute")  # Very heavy operation - very strict limit
+@limiter.limit("3/minute;20/day")  # VERY HEAVY OPERATION: Download market data from exchange
 async def ui_download_data(
     request: Request,
     name: str,
@@ -1725,7 +2032,7 @@ async def ui_download_data(
 
 
 @app.get("/ui/settings", response_class=HTMLResponse)
-@limiter.limit("100/minute")  # UI page views
+@limiter.limit("1000/hour")  # STANDARD BUSINESS (READ): Settings page
 async def settings_page(request: Request, saved: bool = False, user=Depends(require_auth)) -> HTMLResponse:
     """Web UI: System settings page for AppConfig management.
 
@@ -1768,7 +2075,7 @@ async def settings_page(request: Request, saved: bool = False, user=Depends(requ
 
 
 @app.post("/ui/settings")
-@limiter.limit("10/minute")  # Settings save - moderate limit
+@limiter.limit("30/minute;500/hour")  # STANDARD BUSINESS (WRITE): Save settings
 async def save_settings(
     request: Request,
     user=Depends(require_auth),  # Authentication required
@@ -1946,7 +2253,7 @@ async def save_settings(
 
 
 @app.get("/ui/data/files")
-@limiter.limit("100/minute")  # File listing
+@limiter.limit("60/minute")  # FILE LISTING: List data files
 async def ui_list_data_files(request: Request) -> JSONResponse:
     """Web UI: List available CSV data files.
 
