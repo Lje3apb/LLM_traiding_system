@@ -132,6 +132,12 @@ async def live_session_websocket(websocket: WebSocket, session_id: str, token: s
     # Register connection for tracking
     register_connection(user_id, websocket)
 
+    # Subscribe to real-time events from the session
+    session = manager.get_session(session_id)
+    if session:
+        session.subscribe(websocket)
+        logger.info(f"WebSocket subscribed to session {session_id} for real-time events")
+
     try:
         # Get initial session status
         try:
@@ -249,6 +255,12 @@ async def live_session_websocket(websocket: WebSocket, session_id: str, token: s
         # ====================================================================
         # Cleanup resources
         # ====================================================================
+        # Unsubscribe from session events
+        session = manager.get_session(session_id)
+        if session:
+            session.unsubscribe(websocket)
+            logger.info(f"WebSocket unsubscribed from session {session_id}")
+
         # Unregister connection
         unregister_connection(user_id, websocket)
 

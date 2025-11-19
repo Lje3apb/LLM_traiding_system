@@ -174,6 +174,10 @@ class LiveSession:
         self._bar_history: list[Bar] = []
         self._max_bars = 5000
 
+        # WebSocket subscribers for real-time events
+        self._subscribers: list[Any] = []  # List of WebSocket connections
+        self._subscribers_lock = threading.Lock()
+
         # Setup callbacks to update state
         self.engine.set_callbacks(
             on_new_bar=self._on_new_bar,
@@ -510,10 +514,30 @@ class LiveSession:
             # Update state
             self._update_last_state()
 
+        # Broadcast bar event to WebSocket subscribers (non-blocking)
+        if self._subscribers:
+            bar_dict = self._bar_to_dict(bar)
+            self._schedule_broadcast("bar", bar_dict)
+
     def _on_order_executed(self, order: Any, bar: Bar) -> None:
         """Callback when order is executed."""
         with self._lock:
             self._update_last_state()
+
+            # Get the most recent trade for broadcasting
+            if self.portfolio.closed_trades:
+                last_trade = self.portfolio.closed_trades[-1]
+
+                # Broadcast trade event to WebSocket subscribers (non-blocking)
+                if self._subscribers:
+                    trade_dict = {
+                        "timestamp": bar.timestamp.isoformat(),
+                        "side": last_trade.side,
+                        "quantity": last_trade.size,
+                        "price": last_trade.exit_price if last_trade.exit_price else last_trade.entry_price,
+                        "pnl": last_trade.pnl,
+                    }
+                    self._schedule_broadcast("trade", trade_dict)
 
     def _on_error(self, error: Exception) -> None:
         """Callback when error occurs."""
@@ -572,6 +596,99 @@ class LiveSession:
             "size": trade.size,
             "pnl": trade.pnl,
         }
+
+    # WebSocket subscriber management
+
+    def _schedule_broadcast(self, event_type: str, payload: dict[str, Any]) -> None:
+        """Schedule a broadcast event to be sent from async context.
+
+        This method is called from sync context (callbacks) and schedules
+        the actual broadcast to run in the event loop.
+
+        Args:
+            event_type: Type of event ('bar', 'trade', etc.)
+            payload: Event data
+        """
+        import asyncio
+
+        try:
+            # Try to get the running event loop
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop - try to get or create event loop
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+            except Exception as e:
+                logger.warning(f"Could not get event loop for broadcast: {e}")
+                return
+
+        # Schedule the broadcast
+        try:
+            if loop.is_running():
+                # Loop is running - create task
+                asyncio.run_coroutine_threadsafe(
+                    self._broadcast_event(event_type, payload),
+                    loop
+                )
+            else:
+                # Loop is not running - just skip (shouldn't happen in practice)
+                logger.warning("Event loop not running, skipping broadcast")
+        except Exception as e:
+            logger.warning(f"Failed to schedule broadcast: {e}")
+
+    def subscribe(self, websocket: Any) -> None:
+        """Subscribe a WebSocket connection to receive real-time events.
+
+        Args:
+            websocket: WebSocket connection object
+        """
+        with self._subscribers_lock:
+            if websocket not in self._subscribers:
+                self._subscribers.append(websocket)
+                logger.debug(f"WebSocket subscribed to session {self.session_id}. Total subscribers: {len(self._subscribers)}")
+
+    def unsubscribe(self, websocket: Any) -> None:
+        """Unsubscribe a WebSocket connection from events.
+
+        Args:
+            websocket: WebSocket connection object
+        """
+        with self._subscribers_lock:
+            if websocket in self._subscribers:
+                self._subscribers.remove(websocket)
+                logger.debug(f"WebSocket unsubscribed from session {self.session_id}. Total subscribers: {len(self._subscribers)}")
+
+    async def _broadcast_event(self, event_type: str, payload: dict[str, Any]) -> None:
+        """Broadcast an event to all subscribed WebSocket connections.
+
+        Args:
+            event_type: Type of event ('bar', 'trade', etc.)
+            payload: Event data
+        """
+        import asyncio
+
+        message = {"type": event_type, "payload": payload}
+
+        with self._subscribers_lock:
+            # Create a copy to avoid issues if subscribers change during iteration
+            subscribers = self._subscribers.copy()
+
+        # Send to all subscribers
+        for websocket in subscribers:
+            try:
+                # Check if connection is still open
+                if hasattr(websocket, 'client_state') and websocket.client_state.name == 'CONNECTED':
+                    await websocket.send_json(message)
+                    logger.debug(f"Broadcast {event_type} event to WebSocket")
+            except Exception as e:
+                logger.warning(f"Failed to broadcast {event_type} event to WebSocket: {e}")
+                # Remove failed connection
+                with self._subscribers_lock:
+                    if websocket in self._subscribers:
+                        self._subscribers.remove(websocket)
 
     def _bar_to_dict(self, bar: Bar) -> dict[str, Any]:
         """Convert Bar to dictionary."""
@@ -767,6 +884,18 @@ class LiveSessionManager:
         session = self._get_session(session_id)
         session.stop()
         return session.get_status()
+
+    def get_session(self, session_id: str) -> LiveSession | None:
+        """Get a session by ID.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            LiveSession object or None if not found
+        """
+        with self._lock:
+            return self._sessions.get(session_id)
 
     def get_status(self, session_id: str) -> dict[str, Any]:
         """Get session status and current state.
