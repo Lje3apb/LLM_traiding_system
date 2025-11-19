@@ -77,12 +77,17 @@ def _verify_csrf_token(request: Request, form_token: str | None) -> None:
 
     # Validate both tokens exist
     if not cookie_token:
+        logger.warning(f"CSRF validation failed: cookie_token missing for {request.url.path}")
         raise HTTPException(
             status_code=403,
-            detail="CSRF token missing from cookie. Please refresh the page and try again."
+            detail=(
+                "CSRF token missing from cookie. Please refresh the page and try again. "
+                "If this persists, try clearing your browser cookies for this site."
+            )
         )
 
     if not form_token:
+        logger.warning(f"CSRF validation failed: form_token missing for {request.url.path}")
         raise HTTPException(
             status_code=403,
             detail="CSRF token missing from form submission. This request has been blocked for security."
@@ -90,9 +95,16 @@ def _verify_csrf_token(request: Request, form_token: str | None) -> None:
 
     # Constant-time comparison to prevent timing attacks
     if not secrets.compare_digest(cookie_token, form_token):
+        logger.warning(
+            f"CSRF validation failed: token mismatch for {request.url.path}. "
+            f"Cookie token: {cookie_token[:8]}..., Form token: {form_token[:8] if form_token else 'None'}..."
+        )
         raise HTTPException(
             status_code=403,
-            detail="CSRF token validation failed. This may indicate a Cross-Site Request Forgery attack."
+            detail=(
+                "CSRF token validation failed. This may indicate a Cross-Site Request Forgery attack. "
+                "Please refresh the page and try again. If this persists, clear your browser cookies."
+            )
         )
 
 
