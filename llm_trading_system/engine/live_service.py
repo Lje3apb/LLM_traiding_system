@@ -767,21 +767,51 @@ class LiveSessionManager:
         elif strategy_config is None:
             raise ValueError("strategy_config is required")
 
+        # Check if strategy requires LLM client
+        # Modes: "quant_only", "hybrid", "llm_only"
+        strategy_mode = strategy_config.get("mode", "quant_only")
+        llm_client = None
+
+        # Create LLM client if needed (for hybrid or llm_only modes)
+        if strategy_mode in ("hybrid", "llm_only"):
+            # Create LLM client
+            # TODO: Support OpenAI and configurable LLM providers
+            from llm_trading_system.core.llm_client import create_ollama_client
+
+            try:
+                llm_client = create_ollama_client()
+                logger.info(f"Created LLM client for strategy mode: {strategy_mode}")
+            except Exception as e:
+                raise ValueError(
+                    f"Failed to create LLM client for mode '{strategy_mode}': {e}. "
+                    f"Make sure Ollama is running or configure a different LLM provider."
+                )
+
         try:
-            strategy = create_strategy_from_config(strategy_config, llm_client=None)
+            strategy = create_strategy_from_config(strategy_config, llm_client=llm_client)
         except Exception as e:
             raise ValueError(f"Failed to create strategy: {e}")
 
-        # Wrap with LLM if enabled
+        # Wrap with LLM Regime if enabled
         if config.llm_enabled:
             llm_config_dict = config.llm_config or {}
             llm_config = LLMRegimeConfig(**llm_config_dict)
 
-            # Create LLM client
-            # TODO: Support OpenAI
-            from llm_trading_system.core.llm_client import create_ollama_client
+            # Reuse existing LLM client or create new one
+            if llm_client is None:
+                # Create LLM client if not already created
+                # TODO: Support OpenAI and configurable LLM providers
+                from llm_trading_system.core.llm_client import create_ollama_client
 
-            llm_client = create_ollama_client()
+                try:
+                    llm_client = create_ollama_client()
+                    logger.info("Created LLM client for LLMRegimeWrappedStrategy")
+                except Exception as e:
+                    raise ValueError(
+                        f"Failed to create LLM client for regime wrapper: {e}. "
+                        f"Make sure Ollama is running or configure a different LLM provider."
+                    )
+
             strategy = LLMRegimeWrappedStrategy(
                 inner_strategy=strategy,
                 llm_client=llm_client,
