@@ -423,28 +423,97 @@ class LiveTradingEngine:
             else:
                 raise
 
-    def _warmup_strategy(self) -> None:
+    def _warmup_strategy(self, warmup_bars: int = 50) -> None:
         """Warm up strategy with historical bars if available.
 
         This helps strategies that need historical context (e.g., indicators)
         to have data before live trading starts.
+
+        Args:
+            warmup_bars: Number of historical bars to load (default: 50)
         """
-        logger.info(f"Warming up strategy with historical {self.timeframe} bars")
+        logger.info(f"Warming up strategy with {warmup_bars} historical {self.timeframe} bars")
 
         try:
             # Try to get historical bars from exchange
-            # Note: This is a simple implementation, may need adjustment
-            # based on exchange capabilities
-            historical_bar = self.exchange.get_latest_bar(self.symbol, self.timeframe)
+            historical_bars = self._fetch_historical_bars(warmup_bars)
 
-            if historical_bar:
-                logger.info(f"Loaded 1 historical bar for warmup")
-                # Process through strategy without executing orders
-                self.strategy.on_bar(historical_bar, self.portfolio.account)
-                self.portfolio.mark_to_market(historical_bar)
+            if historical_bars:
+                logger.info(f"Loaded {len(historical_bars)} historical bars for warmup")
+
+                # Process bars through strategy (without executing real orders)
+                for bar in historical_bars:
+                    # Mark portfolio to market with historical price
+                    self.portfolio.mark_to_market(bar)
+
+                    # Let strategy process the bar (for indicator calculations)
+                    self.strategy.on_bar(bar, self.portfolio.account)
+
+                    # Update bar aggregator to sync with historical data
+                    self.bar_aggregator.current_bar = bar
+                    self.bar_aggregator.last_bar_time = bar.timestamp
+
+                    # Call on_new_bar callback so bars are stored in session history
+                    if self.on_new_bar:
+                        self.on_new_bar(bar)
+
+                    # Update result tracking
+                    self.result.bars_processed += 1
+
+                logger.info(f"Strategy warmup completed with {len(historical_bars)} bars")
+            else:
+                logger.warning("No historical bars available for warmup")
 
         except Exception as e:
             logger.warning(f"Could not load historical data for warmup: {e}")
+
+    def _fetch_historical_bars(self, limit: int = 50) -> list[Bar]:
+        """Fetch historical OHLCV bars from exchange.
+
+        Args:
+            limit: Number of bars to fetch
+
+        Returns:
+            List of Bar objects (oldest to newest)
+        """
+        try:
+            # For paper trading with price feed client
+            from llm_trading_system.exchange.paper import PaperExchangeClient
+            if isinstance(self.exchange, PaperExchangeClient) and self._price_feed_client:
+                # Use the price feed client to get historical data
+                exchange_client = self._price_feed_client
+            else:
+                # Use the main exchange client
+                exchange_client = self.exchange
+
+            # Try to use ccxt fetch_ohlcv if available
+            if hasattr(exchange_client, 'exchange') and hasattr(exchange_client.exchange, 'fetch_ohlcv'):
+                ohlcv_data = exchange_client.exchange.fetch_ohlcv(
+                    self.symbol,
+                    self.timeframe,
+                    limit=limit
+                )
+
+                bars = []
+                for candle in ohlcv_data:
+                    bar = Bar(
+                        timestamp=datetime.fromtimestamp(candle[0] / 1000, tz=timezone.utc),
+                        open=candle[1],
+                        high=candle[2],
+                        low=candle[3],
+                        close=candle[4],
+                        volume=candle[5],
+                    )
+                    bars.append(bar)
+
+                return bars
+            else:
+                logger.warning("Exchange client does not support historical data fetching")
+                return []
+
+        except Exception as e:
+            logger.error(f"Failed to fetch historical bars: {e}")
+            return []
 
     def set_callbacks(
         self,
