@@ -15,6 +15,12 @@
                 <a href="/ui/strategies/new">New Strategy</a>
                 <a href="/ui/live">Live Trading</a>
                 <a href="/ui/settings">Settings</a>
+                <span style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+                    {% if request.session.get('username') %}
+                    <span style="color: #666;">👤 {{ request.session.get('username') }}</span>
+                    <a href="/ui/logout" style="color: #f44336;">Logout</a>
+                    {% endif %}
+                </span>
             </nav>
         </div>
     </header>
