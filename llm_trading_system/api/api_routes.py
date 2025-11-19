@@ -220,6 +220,7 @@ async def run_backtest(request_obj: Request, request: dict[str, Any]) -> dict[st
         - initial_equity: float (optional, default: 10000)
         - fee_rate: float (optional, default: 0.001)
         - slippage_bps: float (optional, default: 1.0)
+        - csrf_token: str (optional, ignored - for compatibility with form submissions)
 
     Returns:
         Backtest summary dictionary with metrics
@@ -229,6 +230,11 @@ async def run_backtest(request_obj: Request, request: dict[str, Any]) -> dict[st
     """
     # Validate required fields
     body = request
+
+    # Remove csrf_token if present (for compatibility with form submissions)
+    # JSON API endpoints don't use CSRF protection (they use other auth mechanisms)
+    body.pop('csrf_token', None)
+
     if "config" not in body:
         raise HTTPException(status_code=400, detail="Missing 'config' field")
 
