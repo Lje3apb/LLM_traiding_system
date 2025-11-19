@@ -11,6 +11,7 @@ ccxt>=4.0.0
 # API dependencies
 fastapi==0.115.0
 uvicorn==0.32.0
+websockets>=11.0  # WebSocket support for uvicorn
 jinja2==3.1.4
 python-multipart==0.0.9
 slowapi==0.1.9  # Rate limiting for API endpoints
