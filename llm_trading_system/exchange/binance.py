@@ -42,19 +42,24 @@ class BinanceFuturesClient:
         exchange: CCXT exchange instance
     """
 
-    def __init__(self, config: ExchangeConfig) -> None:
+    def __init__(
+        self, config: ExchangeConfig, *, require_auth: bool = True
+    ) -> None:
         """Initialize Binance Futures client.
 
         Args:
             config: Exchange configuration with API credentials
+            require_auth: Whether private trading endpoints are required.
+                Set to False for market-data only usage without API keys.
 
         Raises:
             ValueError: If required configuration is missing
         """
         self.config = config
+        self.require_auth = require_auth
 
         # Validate API credentials early (Issue #7)
-        if not config.api_key or not config.api_secret:
+        if self.require_auth and (not config.api_key or not config.api_secret):
             raise ValueError(
                 "API credentials are required for Binance Futures. "
                 "Please provide both api_key and api_secret in ExchangeConfig."
@@ -64,14 +69,21 @@ class BinanceFuturesClient:
         # SECURITY WARNING: This dict contains API credentials - NEVER log or print it!
         # Logging exchange_options will expose apiKey and secret in plaintext
         exchange_options: dict[str, Any] = {
-            "apiKey": config.api_key,        # SENSITIVE - DO NOT LOG
-            "secret": config.api_secret,     # SENSITIVE - DO NOT LOG
             "enableRateLimit": config.enable_rate_limit,
             "timeout": config.timeout * 1000,  # ccxt uses milliseconds
             "options": {
                 "defaultType": "future",  # Use USDT-M futures
             },
         }
+
+        if config.api_key and config.api_secret:
+            exchange_options["apiKey"] = config.api_key  # SENSITIVE - DO NOT LOG
+            exchange_options["secret"] = config.api_secret  # SENSITIVE - DO NOT LOG
+        elif self.require_auth:
+            # This should have been caught earlier, but double-check
+            raise ValueError(
+                "API credentials are required for authenticated Binance client"
+            )
 
         # Log only safe configuration (without credentials)
         logger.debug(
@@ -100,11 +112,11 @@ class BinanceFuturesClient:
         except Exception as e:
             raise RuntimeError(
                 f"Failed to synchronize time with Binance server. "
-                f"Time sync is required for API authentication. Error: {e}"
+                f"Time sync is required for API usage. Error: {e}"
             )
 
         # Set leverage if specified - CRITICAL: fail if leverage setting fails
-        if config.leverage > 1:
+        if self.require_auth and config.leverage > 1:
             try:
                 self.exchange.set_leverage(config.leverage, config.trading_symbol)
                 # Verify leverage was actually set by fetching position info
@@ -137,6 +149,7 @@ class BinanceFuturesClient:
         Raises:
             Exception: If API request fails
         """
+        self._ensure_authenticated("fetch account info")
         try:
             balance = self.exchange.fetch_balance()
             positions = self.get_open_positions()
@@ -182,6 +195,7 @@ class BinanceFuturesClient:
         Raises:
             Exception: If API request fails
         """
+        self._ensure_authenticated("fetch open positions")
         try:
             positions_data = self.exchange.fetch_positions()
             positions = []
@@ -241,6 +255,7 @@ class BinanceFuturesClient:
         Raises:
             Exception: If API request fails
         """
+        self._ensure_authenticated("fetch open orders")
         try:
             orders = self.exchange.fetch_open_orders(symbol)
             result = []
@@ -377,6 +392,7 @@ class BinanceFuturesClient:
                     f"Cannot place order with incorrect leverage. Error: {e}"
                 )
 
+        self._ensure_authenticated("place orders")
         try:
             # Prepare order parameters
             params: dict[str, Any] = {}
@@ -424,6 +440,7 @@ class BinanceFuturesClient:
         Raises:
             Exception: If cancellation fails
         """
+        self._ensure_authenticated("cancel orders")
         try:
             self.exchange.cancel_order(order_id, symbol)
             return True
@@ -463,6 +480,14 @@ class BinanceFuturesClient:
             raise RuntimeError(
                 f"Failed to synchronize time with Binance server. "
                 f"All API requests will fail without accurate time sync. Error: {e}"
+            )
+
+    def _ensure_authenticated(self, action: str) -> None:
+        """Ensure the client is authorized to call private endpoints."""
+
+        if not self.require_auth:
+            raise RuntimeError(
+                f"Cannot {action}: Binance client initialized without API credentials"
             )
 
 

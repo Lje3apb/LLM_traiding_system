@@ -29,6 +29,16 @@ let sessionStartTime = null;
 let sessionConfig = null;
 let durationTimer = null;
 let initialDeposit = 0;
+let chartBars = [];
+
+const INITIAL_BAR_FETCH_LIMIT = 50;
+const MAX_BAR_HISTORY = 500;
+const INDICATOR_DEFAULTS = {
+    rsiLength: 14,
+    emaLength: 21,
+    bbLength: 20,
+    bbStdDev: 2
+};
 
 // ============================================================================
 // Initialization
@@ -58,9 +68,15 @@ function setupEventListeners() {
     document.getElementById('refresh-balance-btn').addEventListener('click', refreshBalance);
 
     // Chart indicator controls
-    document.getElementById('toggle-indicators-rsi').addEventListener('change', toggleRSI);
-    document.getElementById('toggle-indicators-bb').addEventListener('change', toggleBB);
-    document.getElementById('toggle-indicators-ema').addEventListener('change', toggleEMA);
+    document.getElementById('toggle-indicators-rsi').addEventListener('change', (event) =>
+        setRSIEnabled(event.target.checked)
+    );
+    document.getElementById('toggle-indicators-bb').addEventListener('change', (event) =>
+        setBBEnabled(event.target.checked)
+    );
+    document.getElementById('toggle-indicators-ema').addEventListener('change', (event) =>
+        setEMAEnabled(event.target.checked)
+    );
     document.getElementById('toggle-trades').addEventListener('change', toggleTrades);
 }
 
@@ -766,8 +782,12 @@ async function fetchSessionStatus() {
 // ============================================================================
 
 function initializeChart() {
+    cleanupChart();
     const container = document.getElementById('live-chart-container');
     container.innerHTML = ''; // Clear empty state
+
+    chartBars = [];
+    tradeMarkers = [];
 
     chartInstance = LightweightCharts.createChart(container, {
         width: container.clientWidth,
@@ -830,6 +850,9 @@ function initializeChart() {
     };
 
     window.addEventListener('resize', chartResizeHandler);
+
+    // Re-apply indicator visibility if user left toggles enabled
+    restoreIndicatorState();
 }
 
 async function loadInitialBars() {
@@ -837,15 +860,20 @@ async function loadInitialBars() {
 
     try {
         const response = await fetchWithTimeout(
-            `/api/live/sessions/${currentSessionId}/bars?limit=500`,
+            `/api/live/sessions/${currentSessionId}/bars?limit=${INITIAL_BAR_FETCH_LIMIT}`,
             {},
-            10000  // 10 second timeout for large dataset
+            10000  // 10 second timeout for historical dataset
         );
 
         if (response.ok) {
             const data = await response.json();
-            if (data.bars && data.bars.length > 0) {
-                const bars = data.bars.map(b => ({
+            if (Array.isArray(data.bars) && data.bars.length > 0) {
+                const sortedBars = [...data.bars].sort(
+                    (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+                );
+                const limitedBars = sortedBars.slice(-MAX_BAR_HISTORY);
+
+                chartBars = limitedBars.map(b => ({
                     time: new Date(b.timestamp).getTime() / 1000,
                     open: b.open,
                     high: b.high,
@@ -853,18 +881,23 @@ async function loadInitialBars() {
                     close: b.close,
                 }));
 
-                candlestickSeries.setData(bars);
+                candlestickSeries.setData(chartBars);
 
-                const volumeData = data.bars.map(b => ({
+                const volumeData = limitedBars.map(b => ({
                     time: new Date(b.timestamp).getTime() / 1000,
                     value: b.volume || 0,
-                    color: b.close >= b.open ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'
+                    color: b.close >= b.open
+                        ? 'rgba(16, 185, 129, 0.3)'
+                        : 'rgba(239, 68, 68, 0.3)'
                 }));
                 volumeSeries.setData(volumeData);
 
                 chartInstance.timeScale().fitContent();
+                refreshIndicators();
 
-                console.log(`Loaded ${bars.length} bars`);
+                console.log(`Loaded ${chartBars.length} bars`);
+            } else {
+                console.log('No historical bars returned for session.');
             }
         }
     } catch (error) {
@@ -918,6 +951,24 @@ function updateChart(bar) {
         value: bar.volume || 0,
         color: barData.close >= barData.open ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'
     });
+
+    upsertChartBar(barData);
+    refreshIndicators();
+}
+
+function upsertChartBar(barData) {
+    const index = chartBars.findIndex(existing => existing.time === barData.time);
+
+    if (index !== -1) {
+        chartBars[index] = barData;
+    } else {
+        chartBars.push(barData);
+    }
+
+    chartBars.sort((a, b) => a.time - b.time);
+    if (chartBars.length > MAX_BAR_HISTORY) {
+        chartBars = chartBars.slice(-MAX_BAR_HISTORY);
+    }
 }
 
 function addTradeMarker(trade) {
@@ -945,133 +996,283 @@ function addTradeMarker(trade) {
 // Chart Controls (Indicators)
 // ============================================================================
 
-function toggleRSI(event) {
-    const enabled = event.target.checked;
+function setRSIEnabled(enabled, options = {}) {
+    const { notifyOnInsufficientData = true } = options;
+    const checkbox = document.getElementById('toggle-indicators-rsi');
 
     if (!chartInstance) {
-        showError('Chart not initialized');
-        event.target.checked = false;
+        if (enabled) {
+            showError('Chart not initialized');
+        }
+        checkbox.checked = false;
         return;
     }
 
-    if (enabled && !rsiSeries) {
-        try {
-            // Create RSI series
-            rsiSeries = chartInstance.addLineSeries({
-                color: '#9333ea',
-                lineWidth: 2,
-                priceScaleId: 'rsi',
-                scaleMargins: {
-                    top: 0.9,
-                    bottom: 0,
-                },
-            });
-
-            // TODO: Fetch RSI data from backend or calculate client-side
-            console.log('RSI indicator enabled (data loading not yet implemented)');
-        } catch (error) {
-            console.error('Failed to create RSI series:', error);
-            event.target.checked = false;
-            showError('Failed to enable RSI indicator');
+    if (enabled) {
+        if (!rsiSeries) {
+            try {
+                rsiSeries = chartInstance.addLineSeries({
+                    color: '#9333ea',
+                    lineWidth: 2,
+                    priceScaleId: 'rsi',
+                    priceFormat: { precision: 2, minMove: 0.1 },
+                });
+                chartInstance.priceScale('rsi').applyOptions({
+                    scaleMargins: { top: 0.8, bottom: 0.02 },
+                    borderVisible: false,
+                });
+            } catch (error) {
+                console.error('Failed to create RSI series:', error);
+                checkbox.checked = false;
+                showError('Failed to enable RSI indicator');
+                return;
+            }
         }
-    } else if (!enabled && rsiSeries) {
-        try {
-            // Remove RSI series
-            chartInstance.removeSeries(rsiSeries);
-            rsiSeries = null;
-            console.log('RSI indicator disabled');
-        } catch (error) {
-            console.error('Failed to remove RSI series:', error);
-        }
+        updateRsiSeriesData({ notifyOnInsufficientData });
+    } else if (rsiSeries) {
+        chartInstance.removeSeries(rsiSeries);
+        rsiSeries = null;
     }
 }
 
-function toggleBB(event) {
-    const enabled = event.target.checked;
+function setBBEnabled(enabled, options = {}) {
+    const { notifyOnInsufficientData = true } = options;
+    const checkbox = document.getElementById('toggle-indicators-bb');
 
     if (!chartInstance) {
-        showError('Chart not initialized');
-        event.target.checked = false;
+        if (enabled) {
+            showError('Chart not initialized');
+        }
+        checkbox.checked = false;
         return;
     }
 
-    if (enabled && !bbUpperSeries) {
-        try {
-            // Create Bollinger Bands series
-            bbUpperSeries = chartInstance.addLineSeries({
-                color: '#3b82f6',
-                lineWidth: 1,
-                lineStyle: 2, // Dashed
-            });
-
-            bbMiddleSeries = chartInstance.addLineSeries({
-                color: '#3b82f6',
-                lineWidth: 1,
-            });
-
-            bbLowerSeries = chartInstance.addLineSeries({
-                color: '#3b82f6',
-                lineWidth: 1,
-                lineStyle: 2, // Dashed
-            });
-
-            // TODO: Fetch BB data from backend or calculate client-side
-            console.log('Bollinger Bands enabled (data loading not yet implemented)');
-        } catch (error) {
-            console.error('Failed to create BB series:', error);
-            event.target.checked = false;
-            showError('Failed to enable Bollinger Bands');
+    if (enabled) {
+        if (!bbUpperSeries) {
+            try {
+                bbUpperSeries = chartInstance.addLineSeries({
+                    color: '#3b82f6',
+                    lineWidth: 1,
+                    lineStyle: 2,
+                });
+                bbMiddleSeries = chartInstance.addLineSeries({
+                    color: '#3b82f6',
+                    lineWidth: 1,
+                });
+                bbLowerSeries = chartInstance.addLineSeries({
+                    color: '#3b82f6',
+                    lineWidth: 1,
+                    lineStyle: 2,
+                });
+            } catch (error) {
+                console.error('Failed to create BB series:', error);
+                checkbox.checked = false;
+                showError('Failed to enable Bollinger Bands');
+                return;
+            }
         }
-    } else if (!enabled && bbUpperSeries) {
-        try {
-            // Remove BB series
-            chartInstance.removeSeries(bbUpperSeries);
-            chartInstance.removeSeries(bbMiddleSeries);
-            chartInstance.removeSeries(bbLowerSeries);
-            bbUpperSeries = null;
-            bbMiddleSeries = null;
-            bbLowerSeries = null;
-            console.log('Bollinger Bands disabled');
-        } catch (error) {
-            console.error('Failed to remove BB series:', error);
-        }
+        updateBollingerSeriesData({ notifyOnInsufficientData });
+    } else if (bbUpperSeries) {
+        chartInstance.removeSeries(bbUpperSeries);
+        chartInstance.removeSeries(bbMiddleSeries);
+        chartInstance.removeSeries(bbLowerSeries);
+        bbUpperSeries = null;
+        bbMiddleSeries = null;
+        bbLowerSeries = null;
     }
 }
 
-function toggleEMA(event) {
-    const enabled = event.target.checked;
+function setEMAEnabled(enabled, options = {}) {
+    const { notifyOnInsufficientData = true } = options;
+    const checkbox = document.getElementById('toggle-indicators-ema');
 
     if (!chartInstance) {
-        showError('Chart not initialized');
-        event.target.checked = false;
+        if (enabled) {
+            showError('Chart not initialized');
+        }
+        checkbox.checked = false;
         return;
     }
 
-    if (enabled && !emaSeries) {
-        try {
-            // Create EMA series
-            emaSeries = chartInstance.addLineSeries({
-                color: '#f59e0b',
-                lineWidth: 2,
-            });
-
-            // TODO: Fetch EMA data from backend or calculate client-side
-            console.log('EMA indicator enabled (data loading not yet implemented)');
-        } catch (error) {
-            console.error('Failed to create EMA series:', error);
-            event.target.checked = false;
-            showError('Failed to enable EMA indicator');
+    if (enabled) {
+        if (!emaSeries) {
+            try {
+                emaSeries = chartInstance.addLineSeries({
+                    color: '#f59e0b',
+                    lineWidth: 2,
+                });
+            } catch (error) {
+                console.error('Failed to create EMA series:', error);
+                checkbox.checked = false;
+                showError('Failed to enable EMA indicator');
+                return;
+            }
         }
-    } else if (!enabled && emaSeries) {
-        try {
-            // Remove EMA series
-            chartInstance.removeSeries(emaSeries);
-            emaSeries = null;
-            console.log('EMA indicator disabled');
-        } catch (error) {
-            console.error('Failed to remove EMA series:', error);
+        updateEmaSeriesData({ notifyOnInsufficientData });
+    } else if (emaSeries) {
+        chartInstance.removeSeries(emaSeries);
+        emaSeries = null;
+    }
+}
+
+function updateRsiSeriesData(options = {}) {
+    const { notifyOnInsufficientData = false } = options;
+    if (!rsiSeries) return;
+
+    const data = calculateRSI(chartBars, INDICATOR_DEFAULTS.rsiLength);
+    rsiSeries.setData(data);
+
+    if (notifyOnInsufficientData && data.length === 0) {
+        showInfo(`Need at least ${INDICATOR_DEFAULTS.rsiLength + 1} bars to plot RSI`);
+    }
+}
+
+function updateBollingerSeriesData(options = {}) {
+    const { notifyOnInsufficientData = false } = options;
+    if (!bbUpperSeries || !bbMiddleSeries || !bbLowerSeries) return;
+
+    const bands = calculateBollingerBands(
+        chartBars,
+        INDICATOR_DEFAULTS.bbLength,
+        INDICATOR_DEFAULTS.bbStdDev
+    );
+
+    bbUpperSeries.setData(bands.upper);
+    bbMiddleSeries.setData(bands.middle);
+    bbLowerSeries.setData(bands.lower);
+
+    if (notifyOnInsufficientData && bands.upper.length === 0) {
+        showInfo(`Need at least ${INDICATOR_DEFAULTS.bbLength} bars to plot Bollinger Bands`);
+    }
+}
+
+function updateEmaSeriesData(options = {}) {
+    const { notifyOnInsufficientData = false } = options;
+    if (!emaSeries) return;
+
+    const data = calculateEMA(chartBars, INDICATOR_DEFAULTS.emaLength);
+    emaSeries.setData(data);
+
+    if (notifyOnInsufficientData && data.length === 0) {
+        showInfo(`Need at least ${INDICATOR_DEFAULTS.emaLength} bars to plot EMA`);
+    }
+}
+
+function refreshIndicators(options = {}) {
+    const { notifyOnInsufficientData = false } = options;
+
+    if (rsiSeries) {
+        updateRsiSeriesData({ notifyOnInsufficientData });
+    }
+    if (bbUpperSeries) {
+        updateBollingerSeriesData({ notifyOnInsufficientData });
+    }
+    if (emaSeries) {
+        updateEmaSeriesData({ notifyOnInsufficientData });
+    }
+}
+
+function restoreIndicatorState() {
+    setRSIEnabled(document.getElementById('toggle-indicators-rsi').checked, {
+        notifyOnInsufficientData: false
+    });
+    setBBEnabled(document.getElementById('toggle-indicators-bb').checked, {
+        notifyOnInsufficientData: false
+    });
+    setEMAEnabled(document.getElementById('toggle-indicators-ema').checked, {
+        notifyOnInsufficientData: false
+    });
+}
+
+function calculateRSI(bars, length) {
+    if (!Array.isArray(bars) || bars.length <= length) {
+        return [];
+    }
+
+    const closes = bars.map(bar => bar.close);
+    let gains = 0;
+    let losses = 0;
+
+    for (let i = 1; i <= length; i++) {
+        const change = closes[i] - closes[i - 1];
+        if (change >= 0) {
+            gains += change;
+        } else {
+            losses -= change;
         }
     }
+
+    let avgGain = gains / length;
+    let avgLoss = losses / length;
+    const data = [];
+
+    const calcValue = () => {
+        if (avgLoss === 0) {
+            return 100;
+        }
+        const rs = avgGain / avgLoss;
+        return 100 - 100 / (1 + rs);
+    };
+
+    data.push({ time: bars[length].time, value: calcValue() });
+
+    for (let i = length + 1; i < closes.length; i++) {
+        const change = closes[i] - closes[i - 1];
+        if (change >= 0) {
+            avgGain = ((avgGain * (length - 1)) + change) / length;
+            avgLoss = ((avgLoss * (length - 1))) / length;
+        } else {
+            const loss = Math.abs(change);
+            avgGain = ((avgGain * (length - 1))) / length;
+            avgLoss = ((avgLoss * (length - 1)) + loss) / length;
+        }
+        data.push({ time: bars[i].time, value: calcValue() });
+    }
+
+    return data;
+}
+
+function calculateBollingerBands(bars, length, stdDevMultiplier) {
+    if (!Array.isArray(bars) || bars.length < length) {
+        return { upper: [], middle: [], lower: [] };
+    }
+
+    const upper = [];
+    const middle = [];
+    const lower = [];
+
+    for (let i = length - 1; i < bars.length; i++) {
+        const window = bars.slice(i - length + 1, i + 1);
+        const closes = window.map(bar => bar.close);
+        const mean = closes.reduce((sum, value) => sum + value, 0) / length;
+        const variance = closes.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / length;
+        const stdDev = Math.sqrt(variance);
+        const time = bars[i].time;
+
+        middle.push({ time, value: mean });
+        upper.push({ time, value: mean + stdDevMultiplier * stdDev });
+        lower.push({ time, value: mean - stdDevMultiplier * stdDev });
+    }
+
+    return { upper, middle, lower };
+}
+
+function calculateEMA(bars, length) {
+    if (!Array.isArray(bars) || bars.length < length) {
+        return [];
+    }
+
+    const closes = bars.map(bar => bar.close);
+    const multiplier = 2 / (length + 1);
+    let ema = closes.slice(0, length).reduce((sum, value) => sum + value, 0) / length;
+    const data = [{ time: bars[length - 1].time, value: ema }];
+
+    for (let i = length; i < closes.length; i++) {
+        ema = (closes[i] - ema) * multiplier + ema;
+        data.push({ time: bars[i].time, value: ema });
+    }
+
+    return data;
 }
 
 function toggleTrades(event) {
@@ -1294,6 +1495,7 @@ function cleanupChart() {
     bbLowerSeries = null;
     emaSeries = null;
     tradeMarkers = [];
+    chartBars = [];
 
     // Remove chart instance (if library supports it)
     if (chartInstance) {
