@@ -944,6 +944,13 @@
 <!-- Lightweight Charts Library -->
 <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
 
+<!-- WebSocket Authentication Token -->
+<script>
+    // WebSocket authentication token for secure real-time connection
+    // This token is time-limited (1 hour) and required for WebSocket connections
+    window.WS_AUTH_TOKEN = "{{ ws_token }}";
+</script>
+
 <!-- Live Trading JS -->
 <script src="{{ url_for('static', path='live_trading.js') }}"></script>
 {% endblock %}
