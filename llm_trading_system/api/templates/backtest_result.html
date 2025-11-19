@@ -537,13 +537,14 @@
                     <th class="sortable" data-sort="entry_price">Entry Price</th>
                     <th class="sortable" data-sort="exit_time">Exit Time</th>
                     <th class="sortable" data-sort="exit_price">Exit Price</th>
+                    <th class="sortable" data-sort="size">Size</th>
                     <th class="sortable" data-sort="pnl_pct">PnL %</th>
                     <th class="sortable" data-sort="pnl_abs">PnL $</th>
                     <th class="sortable" data-sort="bars">Bars</th>
                 </tr>
             </thead>
             <tbody id="trades-table-body">
-                <tr><td colspan="9" class="loading">Loading trades...</td></tr>
+                <tr><td colspan="10" class="loading">Loading trades...</td></tr>
             </tbody>
         </table>
     </div>
@@ -710,7 +711,7 @@
         const tbody = document.getElementById('trades-table-body');
 
         if (!trades || trades.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: #6b7280;">No trades to display</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #6b7280;">No trades to display</td></tr>';
             return;
         }
 
@@ -724,6 +725,7 @@
             const pnlPct = ((trade.exit_price - trade.entry_price) / trade.entry_price * 100) * (trade.side.toUpperCase() === 'LONG' ? 1 : -1);
             const pnlAbs = trade.pnl || 0;
             const isProfit = pnlAbs > 0;
+            const size = trade.size || 0;
 
             return `
                 <tr class="${isProfit ? 'profit' : 'loss'}" data-trade-index="${idx}">
@@ -733,6 +735,7 @@
                     <td>$${trade.entry_price.toFixed(2)}</td>
                     <td>${formatDateTime(trade.exit_time)}</td>
                     <td>$${trade.exit_price.toFixed(2)}</td>
+                    <td>${(size * 100).toFixed(1)}%</td>
                     <td class="${isProfit ? 'pnl-positive' : 'pnl-negative'}">${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%</td>
                     <td class="${isProfit ? 'pnl-positive' : 'pnl-negative'}">${pnlAbs >= 0 ? '+' : ''}$${pnlAbs.toFixed(2)}</td>
                     <td>${trade.bars_held || '-'}</td>
@@ -782,6 +785,10 @@
                 case 'exit_price':
                     aVal = a.exit_price;
                     bVal = b.exit_price;
+                    break;
+                case 'size':
+                    aVal = a.size || 0;
+                    bVal = b.size || 0;
                     break;
                 case 'pnl_pct':
                     aVal = ((a.exit_price - a.entry_price) / a.entry_price) * (a.side.toUpperCase() === 'LONG' ? 1 : -1);
