@@ -389,21 +389,26 @@ async def csrf_middleware(request: Request, call_next):
     Note: /ui/login is excluded because it sets its own CSRF token
     to ensure the form and cookie tokens match exactly.
     """
+    should_issue_token = (
+        request.method == "GET"
+        and request.url.path.startswith("/ui")
+        and request.url.path != "/ui/login"
+    )
+
+    new_token: str | None = None
+    if should_issue_token:
+        new_token = _generate_csrf_token()
+        # Share the freshly minted token with downstream request handlers so
+        # templates can embed the same value that will be written to the cookie.
+        request.state.csrf_token = new_token
+
     response = await call_next(request)
 
-    # Only set CSRF cookie for GET requests to UI pages
-    # Exclude /ui/login which handles CSRF token generation itself
-    if (request.method == "GET" and
-        request.url.path.startswith("/ui") and
-        request.url.path != "/ui/login"):
-        csrf_token = _generate_csrf_token()
-
-        # Determine if we're in production
+    if new_token:
         is_production = os.getenv("ENV", "").lower() == "production"
-
         response.set_cookie(
             key="csrf_token",
-            value=csrf_token,
+            value=new_token,
             httponly=False,  # Allow JavaScript to read for form submission
             samesite="strict",  # Prevent CSRF from external sites
             secure=is_production,  # HTTPS only in production

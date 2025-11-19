@@ -40,8 +40,23 @@ _backtest_cache: dict[str, dict[str, Any]] = {}
 
 
 # ============================================================================
-# CSRF Protection Helper
+# CSRF Protection Helpers
 # ============================================================================
+
+
+def _current_csrf_token(request: Request) -> str:
+    """Return the CSRF token associated with this request.
+
+    When csrf_middleware issues a fresh token for a GET request it stores the
+    value in request.state.csrf_token before the handler executes. This helper
+    prefers that stateful value (so templates can embed the same token that will
+    be written to the cookie) and falls back to the inbound cookie otherwise.
+    """
+
+    token = getattr(request.state, "csrf_token", None)
+    if token:
+        return token
+    return request.cookies.get("csrf_token", "")
 
 
 def _verify_csrf_token(request: Request, form_token: str | None) -> None:
@@ -274,8 +289,8 @@ async def ui_index(request: Request, user=Depends(require_auth)) -> HTMLResponse
         # Get live trading enabled from AppConfig
         live_enabled = app_cfg.exchange.live_trading_enabled
 
-        # Get CSRF token from cookie (set by csrf_middleware)
-        csrf_token = request.cookies.get("csrf_token", "")
+        # Get CSRF token from middleware (falls back to cookie)
+        csrf_token = _current_csrf_token(request)
 
         return templates.TemplateResponse(
             "index.html",
@@ -359,8 +374,8 @@ async def ui_new_strategy(request: Request, user=Depends(require_auth)) -> HTMLR
     Returns:
         HTML response with empty strategy form
     """
-    # Get CSRF token from cookie (set by csrf_middleware)
-    csrf_token = request.cookies.get("csrf_token", "")
+    # Get CSRF token from middleware (falls back to cookie)
+    csrf_token = _current_csrf_token(request)
 
     return templates.TemplateResponse(
         "strategy_form.html",
@@ -391,8 +406,8 @@ async def ui_edit_strategy(request: Request, name: str, user=Depends(require_aut
     try:
         config = storage.load_config(name)
 
-        # Get CSRF token from cookie (set by csrf_middleware)
-        csrf_token = request.cookies.get("csrf_token", "")
+        # Get CSRF token from middleware (falls back to cookie)
+        csrf_token = _current_csrf_token(request)
 
         return templates.TemplateResponse(
             "strategy_form.html",
@@ -595,8 +610,8 @@ async def ui_backtest_form(request: Request, name: str, user=Depends(require_aut
         # Load AppConfig for default values
         app_cfg = load_app_config()
 
-        # Get CSRF token from cookie (set by csrf_middleware)
-        csrf_token = request.cookies.get("csrf_token", "")
+        # Get CSRF token from middleware (falls back to cookie)
+        csrf_token = _current_csrf_token(request)
 
         return templates.TemplateResponse(
             "backtest_form.html",
@@ -1030,8 +1045,8 @@ async def settings_page(request: Request, saved: bool = False, user=Depends(requ
         # Check if Ollama connection failed (empty list could mean connection error)
         ollama_connection_error = len(ollama_models) == 0
 
-        # Get CSRF token from cookie (set by csrf_middleware)
-        csrf_token = request.cookies.get("csrf_token", "")
+        # Get CSRF token from middleware (falls back to cookie)
+        csrf_token = _current_csrf_token(request)
 
         return templates.TemplateResponse(
             "settings.html",

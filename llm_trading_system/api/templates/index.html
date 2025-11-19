@@ -209,7 +209,7 @@
                         <a href="/ui/live?strategy={{ strategy.name }}&symbol={{ strategy.symbol }}&timeframe=5m&mode=real" class="btn-sm btn-warning">Live (Real)</a>
                         {% endif %}
                         <form method="POST" action="/ui/strategies/{{ strategy.name }}/delete" style="display: inline; margin: 0;">
-                            <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                             <button type="submit" class="btn-sm btn-danger" onclick="return confirm('Delete strategy {{ strategy.name }}?')">Delete</button>
                         </form>
                     </div>
