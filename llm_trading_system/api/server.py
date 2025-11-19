@@ -67,14 +67,8 @@ BASE_DIR = Path(__file__).resolve().parent
 # This prevents XSS attacks by automatically escaping user-provided content
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
-# Add CSRF token generator to template context
-def _generate_csrf_token_for_template(csrf_protect: CsrfProtect = Depends()) -> str:
-    """Generate CSRF token for templates."""
-    return csrf_protect.generate_csrf()
-
-
-# Make csrf_token available in all templates
-templates.env.globals["csrf_token"] = lambda: ""  # Placeholder, will be set per request
+# CSRF token generation is handled by the csrf_middleware below
+# Templates receive csrf_token from request.cookies
 
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
@@ -305,9 +299,6 @@ async def save_strategy(request: Request, name: str, config: dict[str, Any]) -> 
     Raises:
         HTTPException: If validation fails (400) or save error (500)
     """
-    # Validate CSRF token
-    await csrf_protect.validate_csrf(request)
-
     # Basic validation
     if "strategy_type" not in config:
         raise HTTPException(
@@ -370,10 +361,8 @@ async def run_backtest(request_obj: Request, request: dict[str, Any]) -> dict[st
     Raises:
         HTTPException: If validation fails (400) or backtest error (500)
     """
-    # Validate CSRF token
-    await csrf_protect.validate_csrf(request)
-
     # Validate required fields
+    body = request
     if "config" not in body:
         raise HTTPException(status_code=400, detail="Missing 'config' field")
 
@@ -450,10 +439,8 @@ async def create_live_session(request_obj: Request, request: dict[str, Any]) -> 
     Raises:
         HTTPException: If validation fails (400/422) or creation error (500)
     """
-    # Validate CSRF token
-    await csrf_protect.validate_csrf(request)
-
     # Extract and validate required fields
+    body = request
     if "mode" not in body:
         raise HTTPException(status_code=400, detail="Missing 'mode' field")
 
@@ -511,9 +498,6 @@ async def start_live_session(request: Request, session_id: str) -> dict[str, Any
     Raises:
         HTTPException: If session not found (404) or start error (500)
     """
-    # Validate CSRF token
-    await csrf_protect.validate_csrf(request)
-
     try:
         manager = get_session_manager()
         status = manager.start_session(session_id)
@@ -542,9 +526,6 @@ async def stop_live_session(request: Request, session_id: str) -> dict[str, Any]
     Raises:
         HTTPException: If session not found (404) or stop error (500)
     """
-    # Validate CSRF token
-    await csrf_protect.validate_csrf(request)
-
     try:
         manager = get_session_manager()
         status = manager.stop_session(session_id)
@@ -868,8 +849,8 @@ async def ui_index(request: Request) -> HTMLResponse:
         # Get live trading enabled from AppConfig
         live_enabled = app_cfg.exchange.live_trading_enabled
 
-        # Generate CSRF token
-        csrf_token, _ = csrf_protect.generate_csrf_tokens(request)
+        # Get CSRF token from cookie (set by csrf_middleware)
+        csrf_token = request.cookies.get("csrf_token", "")
 
         return templates.TemplateResponse(
             "index.html",
@@ -940,8 +921,8 @@ async def ui_new_strategy(request: Request) -> HTMLResponse:
     Returns:
         HTML response with empty strategy form
     """
-    # Generate CSRF token
-    csrf_token, _ = csrf_protect.generate_csrf_tokens(request)
+    # Get CSRF token from cookie (set by csrf_middleware)
+    csrf_token = request.cookies.get("csrf_token", "")
 
     return templates.TemplateResponse(
         "strategy_form.html",
@@ -972,8 +953,8 @@ async def ui_edit_strategy(request: Request, name: str) -> HTMLResponse:
     try:
         config = storage.load_config(name)
 
-        # Generate CSRF token
-        csrf_token, _ = csrf_protect.generate_csrf_tokens(request)
+        # Get CSRF token from cookie (set by csrf_middleware)
+        csrf_token = request.cookies.get("csrf_token", "")
 
         return templates.TemplateResponse(
             "strategy_form.html",
@@ -1138,12 +1119,10 @@ async def ui_delete_strategy(
     Raises:
         HTTPException: If config not found (404) or error deleting (500)
     """
-    # Validate CSRF token
-    await csrf_protect.validate_csrf(request)
+    # CSRF validation (must be first to prevent processing invalid requests)
+    _verify_csrf_token(request, csrf_token)
 
     try:
-        # CSRF validation (must be first to prevent processing invalid requests)
-        _verify_csrf_token(request, csrf_token)
 
         storage.delete_config(name)
         return RedirectResponse(url="/ui/", status_code=303)
@@ -1176,8 +1155,8 @@ async def ui_backtest_form(request: Request, name: str) -> HTMLResponse:
         # Load AppConfig for default values
         app_cfg = load_app_config()
 
-        # Generate CSRF token
-        csrf_token, _ = csrf_protect.generate_csrf_tokens(request)
+        # Get CSRF token from cookie (set by csrf_middleware)
+        csrf_token = request.cookies.get("csrf_token", "")
 
         return templates.TemplateResponse(
             "backtest_form.html",
@@ -1235,12 +1214,10 @@ async def ui_run_backtest(
     Raises:
         HTTPException: If config not found, data not found, or backtest fails
     """
-    # Validate CSRF token
-    await csrf_protect.validate_csrf(request)
+    # CSRF validation (must be first to prevent processing invalid requests)
+    _verify_csrf_token(request, csrf_token)
 
     try:
-        # CSRF validation (must be first to prevent processing invalid requests)
-        _verify_csrf_token(request, csrf_token)
 
         # Load config
         config = storage.load_config(name)
@@ -1611,8 +1588,8 @@ async def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
         # Check if Ollama connection failed (empty list could mean connection error)
         ollama_connection_error = len(ollama_models) == 0
 
-        # Generate CSRF token
-        csrf_token, _ = csrf_protect.generate_csrf_tokens(request)
+        # Get CSRF token from cookie (set by csrf_middleware)
+        csrf_token = request.cookies.get("csrf_token", "")
 
         return templates.TemplateResponse(
             "settings.html",
@@ -1687,15 +1664,12 @@ async def save_settings(
     Returns:
         Redirect to settings page with saved=1 query parameter
     """
-    # Validate CSRF token
-    await csrf_protect.validate_csrf(request)
+    # CSRF validation (must be first to prevent processing invalid requests)
+    _verify_csrf_token(request, csrf_token)
 
     try:
         import os
         from llm_trading_system.config.service import load_config, save_config
-
-        # CSRF validation (must be first to prevent processing invalid requests)
-        _verify_csrf_token(request, csrf_token)
 
         # SECURITY: Check for HTTPS when submitting API keys in production
         # Allow HTTP only in development (ENV != production)
