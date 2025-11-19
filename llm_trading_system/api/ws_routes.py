@@ -86,6 +86,10 @@ async def live_session_websocket(websocket: WebSocket, session_id: str, token: s
     user_id = validate_ws_token(token)
 
     if not user_id:
+        session_data = websocket.scope.get("session") or {}
+        user_id = session_data.get("user_id")
+
+    if not user_id:
         logger.warning(f"WebSocket auth failed: invalid token for session {session_id}")
         await websocket.close(code=4401, reason="Invalid or expired authentication token")
         return
