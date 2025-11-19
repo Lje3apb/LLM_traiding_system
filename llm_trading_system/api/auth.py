@@ -9,15 +9,19 @@ This module provides:
 
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 from dataclasses import dataclass
 from typing import Optional
 
+import bcrypt
 from fastapi import HTTPException, Request
 from fastapi.responses import RedirectResponse
 from itsdangerous import SignatureExpired, URLSafeTimedSerializer
 from passlib.context import CryptContext
+
+logger = logging.getLogger(__name__)
 
 # Password hashing context using bcrypt
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -46,7 +50,7 @@ _USERS_DB: dict[str, User] = {
         user_id="user_001",
         username="admin",
         # Default password: "admin123" (CHANGE THIS IN PRODUCTION!)
-        hashed_password="$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5UpKFSTwVi7.m",
+        hashed_password="$2b$12$aXPKaCIQsEQK7WA4yotu6uaH6dQ1K8qF5/J8NrQz3qnZ0xM2ZZVPy",
         email="admin@trading.local",
         is_active=True,
         is_admin=True,
@@ -55,7 +59,7 @@ _USERS_DB: dict[str, User] = {
         user_id="user_002",
         username="trader",
         # Default password: "trader123" (CHANGE THIS IN PRODUCTION!)
-        hashed_password="$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p0eN3Fd3E7bK/1Cj8XuVCqvi",
+        hashed_password="$2b$12$AztLIdFlqLaZ2piMY9.a.uOV3BC3LTtqs2xP.LYojNT9V6yoUtmQS",
         email="trader@trading.local",
         is_active=True,
         is_admin=False,
@@ -68,6 +72,24 @@ _USERS_DB: dict[str, User] = {
 # ============================================================================
 
 
+def _bcrypt_verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a bcrypt password using the underlying bcrypt backend.
+
+    This helper exists so we can gracefully fall back when passlib cannot
+    initialize its bcrypt backend (which happens with bcrypt>=4).
+    """
+
+    plain_bytes = plain_password.encode("utf-8")
+    hashed_bytes = hashed_password.encode("utf-8")
+
+    try:
+        return bcrypt.checkpw(plain_bytes, hashed_bytes)
+    except ValueError:
+        # bcrypt refuses passwords longer than 72 bytes; mimic passlib's
+        # truncation semantics so very long passwords continue to work.
+        return bcrypt.checkpw(plain_bytes[:72], hashed_bytes)
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against a hash.
 
@@ -78,7 +100,15 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Returns:
         True if password matches, False otherwise
     """
-    return pwd_context.verify(plain_password, hashed_password)
+
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception as exc:  # pragma: no cover - only triggered on bugged envs
+        logger.warning(
+            "Passlib bcrypt backend failed (%s), falling back to raw bcrypt.",
+            exc,
+        )
+        return _bcrypt_verify_password(plain_password, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
@@ -90,7 +120,16 @@ def get_password_hash(password: str) -> str:
     Returns:
         The hashed password
     """
-    return pwd_context.hash(password)
+
+    try:
+        return pwd_context.hash(password)
+    except Exception as exc:  # pragma: no cover - only triggered on bugged envs
+        logger.warning(
+            "Passlib bcrypt backend failed (%s), falling back to raw bcrypt.",
+            exc,
+        )
+        hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+        return hashed.decode("utf-8")
 
 
 # ============================================================================
