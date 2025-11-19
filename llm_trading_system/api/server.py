@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -44,6 +45,107 @@ app = FastAPI(
     version="0.1.0",
     description="HTTP JSON API for backtesting and strategy management",
 )
+
+# ============================================================================
+# Middleware Configuration
+# ============================================================================
+# IMPORTANT: Middleware order matters!
+# - Middleware is executed in REVERSE order for responses
+# - First added = outermost layer = executes first for requests, last for responses
+#
+# Order (outer to inner):
+# 1. CORS - Must be first to handle preflight requests
+# 2. Security Headers - Applied to all responses
+# 3. Session Management - Handles authentication
+# 4. CSRF Middleware - Added via @app.middleware decorator below
+# 5. Application Logic
+# ============================================================================
+
+# ============================================================================
+# CORS Configuration (Cross-Origin Resource Sharing)
+# ============================================================================
+# Controls which origins can access the API
+# Default: No CORS (empty allow_origins list)
+# To enable CORS for specific origins, set CORS_ORIGINS environment variable:
+#   CORS_ORIGINS="http://localhost:3000,https://trading.example.com"
+
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "")
+allowed_origins = [origin.strip() for origin in CORS_ORIGINS.split(",") if origin.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,  # Empty by default - no CORS
+    allow_credentials=True,  # Allow cookies and authorization headers
+    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, PUT, DELETE, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
+
+# ============================================================================
+# Security Headers Middleware
+# ============================================================================
+# Adds security headers to all HTTP responses to protect against common attacks
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """Add security headers to all responses.
+
+    Security headers added:
+    - Strict-Transport-Security (HSTS): Forces HTTPS for 1 year
+    - X-Frame-Options: Prevents clickjacking attacks
+    - X-Content-Type-Options: Prevents MIME-sniffing attacks
+    - Referrer-Policy: Controls referrer information leakage
+    - X-XSS-Protection: Enables browser XSS filtering (legacy browsers)
+    - Content-Security-Policy: Restricts resource loading (defense in depth)
+
+    Note: HSTS header only added in production (when ENV=production)
+    """
+    response = await call_next(request)
+
+    # Strict-Transport-Security (HSTS)
+    # Only set in production to avoid issues in development
+    if os.getenv("ENV", "").lower() == "production":
+        # max-age=31536000: 1 year in seconds
+        # includeSubDomains: Apply to all subdomains
+        # preload: Allow inclusion in browser HSTS preload lists
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+
+    # X-Frame-Options: DENY
+    # Prevents page from being displayed in iframe/frame/embed/object
+    # Protects against clickjacking attacks
+    response.headers["X-Frame-Options"] = "DENY"
+
+    # X-Content-Type-Options: nosniff
+    # Prevents browsers from MIME-sniffing responses
+    # Forces browser to respect Content-Type header
+    response.headers["X-Content-Type-Options"] = "nosniff"
+
+    # Referrer-Policy: same-origin
+    # Only send referrer for same-origin requests
+    # Prevents leaking sensitive information in referrer header
+    response.headers["Referrer-Policy"] = "same-origin"
+
+    # X-XSS-Protection: 1; mode=block (legacy, but good for old browsers)
+    # Enables browser XSS filtering and blocks page if attack detected
+    # Modern browsers use CSP instead, but this adds defense in depth
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+
+    # Content-Security-Policy (CSP)
+    # Restrictive CSP for defense in depth
+    # default-src 'self': Only load resources from same origin
+    # script-src: Allow inline scripts and unpkg.com for charts library
+    # style-src: Allow inline styles
+    # img-src: Allow images from same origin and data URIs
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "font-src 'self'; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'"
+    )
+
+    return response
 
 # ============================================================================
 # Session Management (Authentication)
