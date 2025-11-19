@@ -19,6 +19,7 @@ from slowapi.util import get_remote_address
 
 from llm_trading_system.api.services.validation import (
     sanitize_error_message,
+    validate_data_path,
     validate_strategy_name,
 )
 from llm_trading_system.engine.backtest_service import run_backtest_from_config_dict
@@ -68,7 +69,7 @@ async def health_check(request: Request) -> dict[str, str]:
 
 @router.get("/strategies")
 @limiter.limit("1000/hour")  # STANDARD BUSINESS (READ): List strategies
-async def list_strategies(request: Request) -> list[str]:
+async def list_strategies(request: Request) -> dict[str, list[str]]:
     """List all available trading strategies.
 
     Returns names of all saved strategy configurations.
@@ -77,17 +78,18 @@ async def list_strategies(request: Request) -> list[str]:
         request: FastAPI Request object (required for rate limiting)
 
     Returns:
-        List of strategy names
+        Dictionary with "items" key containing list of strategy names
 
     Raises:
         HTTPException: 500 if strategy listing fails
 
     Example:
         >>> GET /strategies
-        ["momentum_strategy", "mean_reversion", "llm_regime"]
+        {"items": ["momentum_strategy", "mean_reversion", "llm_regime"]}
     """
     try:
-        return storage.list_configs()
+        configs = storage.list_configs()
+        return {"items": configs}
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -119,23 +121,12 @@ async def get_strategy(request: Request, name: str) -> dict[str, Any]:
         }
     """
     try:
-        # Validate strategy name to prevent injection
-        validate_strategy_name(name)
-
         config = storage.load_config(name)
-        if config is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Strategy '{name}' not found"
-            )
         return config
-    except HTTPException:
-        raise  # Re-raise HTTP exceptions as-is
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Config '{name}' not found")
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to load strategy: {sanitize_error_message(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to load config: {e}")
 
 
 @router.post("/strategies/{name}")
@@ -156,27 +147,34 @@ async def save_strategy(
         Success message with strategy name
 
     Raises:
-        HTTPException: 500 if save fails
+        HTTPException: 400 if validation fails, 500 if save fails
 
     Example:
         >>> POST /strategies/my_strategy
         >>> {
+        ...     "strategy_type": "momentum",
+        ...     "mode": "backtest",
         ...     "symbol": "BTCUSDT",
         ...     "params": {...}
         ... }
-        {"message": "Strategy 'my_strategy' saved successfully"}
+        {"status": "saved", "name": "my_strategy"}
     """
-    try:
-        # Validate strategy name to prevent injection
-        validate_strategy_name(name)
-
-        storage.save_config(name, config)
-        return {"message": f"Strategy '{name}' saved successfully"}
-    except Exception as e:
+    # Basic validation
+    if "strategy_type" not in config:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to save strategy: {sanitize_error_message(e)}"
+            status_code=400, detail="Config must contain 'strategy_type' field"
         )
+
+    if "mode" not in config:
+        raise HTTPException(status_code=400, detail="Config must contain 'mode' field")
+
+    try:
+        storage.save_config(name, config)
+        return {"status": "saved", "name": name}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save config: {e}")
 
 
 @router.delete("/strategies/{name}")
@@ -189,34 +187,22 @@ async def delete_strategy(request: Request, name: str) -> dict[str, str]:
         name: Strategy name to delete
 
     Returns:
-        Success message with strategy name
+        Status dictionary
 
     Raises:
         HTTPException: 404 if strategy not found, 500 on other errors
 
     Example:
         >>> DELETE /strategies/old_strategy
-        {"message": "Strategy 'old_strategy' deleted successfully"}
+        {"status": "deleted", "name": "old_strategy"}
     """
     try:
-        # Validate strategy name to prevent injection
-        validate_strategy_name(name)
-
-        if not storage.config_exists(name):
-            raise HTTPException(
-                status_code=404,
-                detail=f"Strategy '{name}' not found"
-            )
-
         storage.delete_config(name)
-        return {"message": f"Strategy '{name}' deleted successfully"}
-    except HTTPException:
-        raise  # Re-raise HTTP exceptions as-is
+        return {"status": "deleted", "name": name}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Config '{name}' not found")
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to delete strategy: {sanitize_error_message(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to delete config: {e}")
 
 
 # ============================================================================
@@ -226,50 +212,72 @@ async def delete_strategy(request: Request, name: str) -> dict[str, str]:
 
 @router.post("/backtest")
 @limiter.limit("10/minute;100/day")  # HEAVY OPERATION: Run backtest (CPU intensive)
-async def run_backtest(request: Request, config: dict[str, Any]) -> dict[str, Any]:
-    """Run a backtest with the given configuration.
+async def run_backtest(request_obj: Request, request: dict[str, Any]) -> dict[str, Any]:
+    """Run a backtest for a given configuration and data.
 
-    This is a CPU-intensive operation that simulates a trading strategy
-    on historical data to evaluate its performance.
-
-    Args:
-        request: FastAPI Request object (required for rate limiting)
-        config: Backtest configuration dictionary containing:
-            - strategy: Strategy type and parameters
-            - data: Data source configuration
-            - period: Time period for backtest
-            - initial_capital: Starting capital
+    Request body should contain:
+        - config: dict (strategy configuration)
+        - data_path: str (path to CSV file)
+        - use_llm: bool (optional, default: false)
+        - llm_model: str (optional, default: llama3.2)
+        - llm_url: str (optional, default: http://localhost:11434)
+        - initial_equity: float (optional, default: 10000)
+        - fee_rate: float (optional, default: 0.001)
+        - slippage_bps: float (optional, default: 1.0)
 
     Returns:
-        Backtest results including:
-            - summary: Performance metrics
-            - trades: List of executed trades
-            - equity_curve: Equity over time
+        Backtest summary dictionary with metrics
 
     Raises:
-        HTTPException: 500 if backtest execution fails
-
-    Example:
-        >>> POST /backtest
-        >>> {
-        ...     "strategy": {"type": "momentum", "params": {...}},
-        ...     "data": {"symbol": "BTCUSDT", "timeframe": "1h"},
-        ...     "period": {"start": "2023-01-01", "end": "2023-12-31"},
-        ...     "initial_capital": 10000
-        ... }
-        {
-            "summary": {"total_return": 0.25, "sharpe_ratio": 1.5, ...},
-            "trades": [...],
-            "equity_curve": [...]
-        }
+        HTTPException: If validation fails (400) or backtest error (500)
     """
+    # Validate required fields
+    body = request
+    if "config" not in body:
+        raise HTTPException(status_code=400, detail="Missing 'config' field")
+
+    if "data_path" not in body:
+        raise HTTPException(status_code=400, detail="Missing 'data_path' field")
+
+    # Extract parameters with defaults
+    config = body["config"]
+    data_path_str = body["data_path"]
+    use_llm = body.get("use_llm", False)
+    llm_model = body.get("llm_model")
+    llm_url = body.get("llm_url")
+    initial_equity = body.get("initial_equity", 10_000.0)
+    fee_rate = body.get("fee_rate", 0.001)
+    slippage_bps = body.get("slippage_bps", 1.0)
+
+    # Validate data_path to prevent path traversal
     try:
-        result = run_backtest_from_config_dict(config)
-        return result
+        validated_path = validate_data_path(data_path_str)
+        data_path = str(validated_path)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid data_path: {e}")
+
+    try:
+        # Run backtest using service layer
+        summary = run_backtest_from_config_dict(
+            config=config,
+            data_path=data_path,
+            use_llm=use_llm,
+            llm_model=llm_model,
+            llm_url=llm_url,
+            initial_equity=initial_equity,
+            fee_rate=fee_rate,
+            slippage_bps=slippage_bps,
+        )
+
+        return summary
+
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Backtest failed: {sanitize_error_message(e)}"
+            status_code=500, detail=f"Backtest failed: {sanitize_error_message(e)}"
         )
 
 
@@ -280,30 +288,28 @@ async def run_backtest(request: Request, config: dict[str, Any]) -> dict[str, An
 
 @router.get("/api/live/sessions")
 @limiter.limit("1000/hour")  # STANDARD BUSINESS (READ): List sessions
-async def list_live_sessions(request: Request) -> list[dict[str, Any]]:
-    """List all live trading sessions.
+async def list_live_sessions(request: Request) -> dict[str, list[dict[str, Any]]]:
+    """List all live/paper trading sessions.
 
     Returns:
-        List of session status dictionaries
-
-    Raises:
-        HTTPException: 500 if listing fails
+        Dictionary with "sessions" key containing list of session status dicts
 
     Example:
         >>> GET /api/live/sessions
-        [
-            {"id": "session_123", "status": "running", "strategy": "momentum"},
-            {"id": "session_456", "status": "stopped", "strategy": "mean_reversion"}
-        ]
+        {
+            "sessions": [
+                {"id": "session_123", "status": "running", "strategy": "momentum"},
+                {"id": "session_456", "status": "stopped", "strategy": "mean_reversion"}
+            ]
+        }
     """
     try:
         manager = get_session_manager()
-        sessions = manager.list_sessions()
-        return sessions
+        sessions = manager.list_status()
+        return {"sessions": sessions}
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to list sessions: {sanitize_error_message(e)}"
+            status_code=500, detail=f"Failed to list sessions: {sanitize_error_message(e)}"
         )
 
 
@@ -313,46 +319,26 @@ async def get_live_session_status(
     request: Request,
     session_id: str
 ) -> dict[str, Any]:
-    """Get status of a specific live trading session.
+    """Get status and current state of a live/paper trading session.
 
     Args:
         request: FastAPI Request object (required for rate limiting)
-        session_id: Session identifier
+        session_id: Session ID
 
     Returns:
-        Session status dictionary including:
-            - id: Session identifier
-            - status: Current status (running/stopped/error)
-            - strategy: Strategy name
-            - created_at: Creation timestamp
-            - performance: Performance metrics
+        Session status dictionary with last_state
 
     Raises:
-        HTTPException: 404 if session not found, 500 on other errors
-
-    Example:
-        >>> GET /api/live/sessions/session_123
-        {
-            "id": "session_123",
-            "status": "running",
-            "strategy": "momentum",
-            "created_at": "2025-01-01T00:00:00Z",
-            "performance": {"pnl": 150.50, "trades": 5}
-        }
+        HTTPException: If session not found (404)
     """
     try:
         manager = get_session_manager()
-        status = manager.get_status(session_id)
-        return status
+        return manager.get_status(session_id)
     except KeyError:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Session '{session_id}' not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get session status: {sanitize_error_message(e)}"
+            status_code=500, detail=f"Failed to get session status: {sanitize_error_message(e)}"
         )
 
 
