@@ -596,7 +596,6 @@ class LiveSession:
             "exit_price": trade.exit_price,
             "size": trade.size,
             "pnl": trade.pnl,
-            "entry_equity": trade.entry_equity,
         }
 
     # WebSocket subscriber management

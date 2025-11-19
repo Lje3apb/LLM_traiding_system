@@ -826,8 +826,8 @@ async def ui_get_backtest_chart_data(request: Request, name: str) -> JSONRespons
             strategy=strategy,
             data_feed=data_feed,
             initial_equity=summary.get("initial_equity", 10000.0),
-            fee_rate=summary.get("fee_rate", 0.001),
-            slippage_bps=summary.get("slippage_bps", 1.0),
+            fee_rate=0.001,
+            slippage_bps=1.0,
             symbol=symbol,
         )
 
@@ -862,7 +862,6 @@ async def ui_get_backtest_chart_data(request: Request, name: str) -> JSONRespons
                 "exit_price": float(trade.exit_price) if trade.exit_price else 0,
                 "pnl": float(trade.pnl) if trade.pnl is not None else 0,
                 "bars_held": bars_held,
-                "entry_equity": float(trade.entry_equity) if trade.entry_equity is not None else None,
             })
 
         return JSONResponse({
