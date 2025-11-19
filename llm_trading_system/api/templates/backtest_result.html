@@ -721,17 +721,9 @@
         filteredTrades = sortTrades(filteredTrades, currentSort.column, currentSort.direction);
 
         tbody.innerHTML = filteredTrades.map((trade, idx) => {
+            const pnlPct = ((trade.exit_price - trade.entry_price) / trade.entry_price * 100) * (trade.side.toUpperCase() === 'LONG' ? 1 : -1);
             const pnlAbs = trade.pnl || 0;
             const isProfit = pnlAbs > 0;
-
-            // Calculate PnL% correctly based on entry_equity
-            let pnlPctDisplay;
-            if (trade.entry_equity && trade.entry_equity > 0) {
-                const pnlPct = (pnlAbs / trade.entry_equity) * 100;
-                pnlPctDisplay = `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%`;
-            } else {
-                pnlPctDisplay = 'N/A';
-            }
 
             return `
                 <tr class="${isProfit ? 'profit' : 'loss'}" data-trade-index="${idx}">
@@ -741,7 +733,7 @@
                     <td>$${trade.entry_price.toFixed(2)}</td>
                     <td>${formatDateTime(trade.exit_time)}</td>
                     <td>$${trade.exit_price.toFixed(2)}</td>
-                    <td class="${isProfit ? 'pnl-positive' : 'pnl-negative'}">${pnlPctDisplay}</td>
+                    <td class="${isProfit ? 'pnl-positive' : 'pnl-negative'}">${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%</td>
                     <td class="${isProfit ? 'pnl-positive' : 'pnl-negative'}">${pnlAbs >= 0 ? '+' : ''}$${pnlAbs.toFixed(2)}</td>
                     <td>${trade.bars_held || '-'}</td>
                 </tr>
@@ -792,9 +784,8 @@
                     bVal = b.exit_price;
                     break;
                 case 'pnl_pct':
-                    // Sort by PnL% calculated from entry_equity (same as display)
-                    aVal = (a.entry_equity && a.entry_equity > 0) ? ((a.pnl || 0) / a.entry_equity) : 0;
-                    bVal = (b.entry_equity && b.entry_equity > 0) ? ((b.pnl || 0) / b.entry_equity) : 0;
+                    aVal = ((a.exit_price - a.entry_price) / a.entry_price) * (a.side.toUpperCase() === 'LONG' ? 1 : -1);
+                    bVal = ((b.exit_price - b.entry_price) / b.entry_price) * (b.side.toUpperCase() === 'LONG' ? 1 : -1);
                     break;
                 case 'pnl_abs':
                     aVal = a.pnl || 0;

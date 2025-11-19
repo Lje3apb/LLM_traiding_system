@@ -25,7 +25,6 @@ class Trade:
     exit_price: float | None
     size: float
     pnl: float | None = None
-    entry_equity: float | None = None  # Equity at position entry (for PnL% calculation)
 
 
 @dataclass
@@ -256,7 +255,6 @@ class PortfolioSimulator:
             exit_price=trade_exit_price,
             size=position_fraction,
             pnl=pnl - self._total_entry_fees - exit_fee,
-            entry_equity=self._entry_equity,
         )
         self.trades.append(trade)
 
