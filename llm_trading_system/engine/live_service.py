@@ -175,7 +175,8 @@ class LiveSession:
         self._max_bars = 5000
 
         # WebSocket subscribers for real-time events
-        self._subscribers: list[Any] = []  # List of WebSocket connections
+        # Store tuple of (websocket, event_loop) to enable thread-safe async calls
+        self._subscribers: list[tuple[Any, Any]] = []  # List of (WebSocket, event_loop)
         self._subscribers_lock = threading.Lock()
 
         # Setup callbacks to update state
@@ -600,69 +601,10 @@ class LiveSession:
     # WebSocket subscriber management
 
     def _schedule_broadcast(self, event_type: str, payload: dict[str, Any]) -> None:
-        """Schedule a broadcast event to be sent from async context.
+        """Schedule a broadcast event to be sent from sync context (background thread).
 
-        This method is called from sync context (callbacks) and schedules
-        the actual broadcast to run in the event loop.
-
-        Args:
-            event_type: Type of event ('bar', 'trade', etc.)
-            payload: Event data
-        """
-        import asyncio
-
-        try:
-            # Try to get the running event loop
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            # No running loop - try to get or create event loop
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_closed():
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-            except Exception as e:
-                logger.warning(f"Could not get event loop for broadcast: {e}")
-                return
-
-        # Schedule the broadcast
-        try:
-            if loop.is_running():
-                # Loop is running - create task
-                asyncio.run_coroutine_threadsafe(
-                    self._broadcast_event(event_type, payload),
-                    loop
-                )
-            else:
-                # Loop is not running - just skip (shouldn't happen in practice)
-                logger.warning("Event loop not running, skipping broadcast")
-        except Exception as e:
-            logger.warning(f"Failed to schedule broadcast: {e}")
-
-    def subscribe(self, websocket: Any) -> None:
-        """Subscribe a WebSocket connection to receive real-time events.
-
-        Args:
-            websocket: WebSocket connection object
-        """
-        with self._subscribers_lock:
-            if websocket not in self._subscribers:
-                self._subscribers.append(websocket)
-                logger.debug(f"WebSocket subscribed to session {self.session_id}. Total subscribers: {len(self._subscribers)}")
-
-    def unsubscribe(self, websocket: Any) -> None:
-        """Unsubscribe a WebSocket connection from events.
-
-        Args:
-            websocket: WebSocket connection object
-        """
-        with self._subscribers_lock:
-            if websocket in self._subscribers:
-                self._subscribers.remove(websocket)
-                logger.debug(f"WebSocket unsubscribed from session {self.session_id}. Total subscribers: {len(self._subscribers)}")
-
-    async def _broadcast_event(self, event_type: str, payload: dict[str, Any]) -> None:
-        """Broadcast an event to all subscribed WebSocket connections.
+        This method is called from sync context (callbacks in background thread) and schedules
+        the actual broadcast to run in each subscriber's event loop using thread-safe method.
 
         Args:
             event_type: Type of event ('bar', 'trade', etc.)
@@ -676,19 +618,66 @@ class LiveSession:
             # Create a copy to avoid issues if subscribers change during iteration
             subscribers = self._subscribers.copy()
 
-        # Send to all subscribers
-        for websocket in subscribers:
+        # Send to all subscribers using their event loops
+        for websocket, event_loop in subscribers:
             try:
-                # Check if connection is still open
-                if hasattr(websocket, 'client_state') and websocket.client_state.name == 'CONNECTED':
-                    await websocket.send_json(message)
-                    logger.debug(f"Broadcast {event_type} event to WebSocket")
+                # Use run_coroutine_threadsafe to schedule send in the correct event loop
+                asyncio.run_coroutine_threadsafe(
+                    self._send_to_websocket(websocket, message),
+                    event_loop
+                )
             except Exception as e:
-                logger.warning(f"Failed to broadcast {event_type} event to WebSocket: {e}")
+                logger.warning(f"Failed to schedule broadcast {event_type} to WebSocket: {e}")
                 # Remove failed connection
                 with self._subscribers_lock:
-                    if websocket in self._subscribers:
-                        self._subscribers.remove(websocket)
+                    try:
+                        self._subscribers.remove((websocket, event_loop))
+                    except ValueError:
+                        pass  # Already removed
+
+    async def _send_to_websocket(self, websocket: Any, message: dict[str, Any]) -> None:
+        """Send message to WebSocket (async helper).
+
+        Args:
+            websocket: WebSocket connection
+            message: Message to send
+        """
+        try:
+            # Check if connection is still open
+            if hasattr(websocket, 'client_state') and websocket.client_state.name == 'CONNECTED':
+                await websocket.send_json(message)
+                logger.debug(f"Sent {message['type']} event to WebSocket")
+        except Exception as e:
+            logger.warning(f"Failed to send message to WebSocket: {e}")
+            raise  # Re-raise to trigger cleanup in caller
+
+    def subscribe(self, websocket: Any, event_loop: Any) -> None:
+        """Subscribe a WebSocket connection to receive real-time events.
+
+        Args:
+            websocket: WebSocket connection object
+            event_loop: The event loop running the WebSocket connection
+        """
+        with self._subscribers_lock:
+            subscriber = (websocket, event_loop)
+            # Check if already subscribed (compare by websocket only)
+            already_subscribed = any(ws == websocket for ws, _ in self._subscribers)
+            if not already_subscribed:
+                self._subscribers.append(subscriber)
+                logger.debug(f"WebSocket subscribed to session {self.session_id}. Total subscribers: {len(self._subscribers)}")
+
+    def unsubscribe(self, websocket: Any) -> None:
+        """Unsubscribe a WebSocket connection from events.
+
+        Args:
+            websocket: WebSocket connection object
+        """
+        with self._subscribers_lock:
+            # Find and remove all entries with this websocket
+            original_count = len(self._subscribers)
+            self._subscribers = [(ws, loop) for ws, loop in self._subscribers if ws != websocket]
+            if len(self._subscribers) < original_count:
+                logger.debug(f"WebSocket unsubscribed from session {self.session_id}. Total subscribers: {len(self._subscribers)}")
 
     def _bar_to_dict(self, bar: Bar) -> dict[str, Any]:
         """Convert Bar to dictionary."""
