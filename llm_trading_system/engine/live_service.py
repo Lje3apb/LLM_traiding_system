@@ -683,6 +683,7 @@ class LiveSessionManager:
             symbol=config.symbol,
             timeframe=config.timeframe,
             poll_interval_sec=config.poll_interval,
+            use_historical_warmup=True,  # Load historical bars on start
         )
 
         # Create session
