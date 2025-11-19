@@ -9,7 +9,7 @@
 </div>
 
 <form method="POST" action="/ui/strategies/{{ name }}/backtest" class="strategy-form">
-    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="form-section">
         <h3>Data Download from Binance</h3>
         <p class="help-text">Automatically download historical OHLCV data from Binance archive</p>

@@ -663,7 +663,10 @@ class LiveSessionManager:
             config.initial_deposit if config.mode == "paper" else 1000.0  # Placeholder
         )
         account = AccountState(
-            equity=initial_equity, position_size=0.0, entry_price=None
+            equity=initial_equity,
+            position_size=0.0,
+            entry_price=None,
+            symbol=config.symbol,
         )
         portfolio = PortfolioSimulator(
             symbol=config.symbol,
