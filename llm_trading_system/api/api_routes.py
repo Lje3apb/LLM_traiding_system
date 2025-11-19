@@ -14,9 +14,8 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
+from llm_trading_system.api.rate_limiter import limiter
 from llm_trading_system.api.services.validation import (
     sanitize_error_message,
     validate_data_path,
@@ -31,9 +30,6 @@ from llm_trading_system.strategies import storage
 
 # Create router for API endpoints
 router = APIRouter()
-
-# Create limiter instance (will be shared with main app)
-limiter = Limiter(key_func=get_remote_address)
 
 
 # ============================================================================
