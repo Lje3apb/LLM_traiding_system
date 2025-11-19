@@ -860,6 +860,7 @@ async def ui_get_backtest_chart_data(request: Request, name: str) -> JSONRespons
                 "entry_price": float(trade.entry_price),
                 "exit_time": exit_unix,
                 "exit_price": float(trade.exit_price) if trade.exit_price else 0,
+                "size": float(trade.size),
                 "pnl": float(trade.pnl) if trade.pnl is not None else 0,
                 "bars_held": bars_held,
             })
