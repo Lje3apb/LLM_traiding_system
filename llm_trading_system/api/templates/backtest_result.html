@@ -1040,6 +1040,14 @@
     function initializeChart(ohlcv, trades) {
         const container = document.getElementById('chart-container');
 
+        // Remove existing chart instance to prevent duplicates
+        if (chartInstance) {
+            chartInstance.remove();
+            chartInstance = null;
+            candlestickSeries = null;
+            volumeSeries = null;
+        }
+
         chartInstance = LightweightCharts.createChart(container, {
             width: container.clientWidth,
             height: 500,
