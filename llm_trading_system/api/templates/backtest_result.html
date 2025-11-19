@@ -424,28 +424,31 @@
         left: 0;
         right: 0;
         bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
+        background: rgba(0, 0, 0, 0.3);
         z-index: 1000;
-        overflow-y: auto;
-        padding: 2rem 1rem;
+        pointer-events: none;
     }
 
     .modal-overlay.active {
-        display: flex;
-        align-items: flex-start;
-        justify-content: center;
+        display: block;
     }
 
     .modal-content {
         background: white;
         border-radius: 8px;
         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-        width: 100%;
-        max-width: 900px;
-        max-height: calc(100vh - 4rem);
-        overflow-y: auto;
-        position: relative;
-        margin: auto;
+        width: 700px;
+        max-width: 90vw;
+        max-height: 85vh;
+        overflow: hidden;
+        position: fixed;
+        top: 50px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        pointer-events: auto;
+        resize: both;
     }
 
     .modal-header {
@@ -454,10 +457,14 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        position: sticky;
-        top: 0;
         background: white;
-        z-index: 10;
+        cursor: move;
+        user-select: none;
+        flex-shrink: 0;
+    }
+
+    .modal-header:active {
+        cursor: grabbing;
     }
 
     .modal-header h3 {
@@ -486,6 +493,8 @@
 
     .modal-body {
         padding: 1.5rem;
+        overflow-y: auto;
+        flex: 1;
     }
 
     .modal-section {
@@ -562,10 +571,8 @@
         justify-content: space-between;
         align-items: center;
         gap: 0.5rem;
-        position: sticky;
-        bottom: 0;
         background: white;
-        z-index: 10;
+        flex-shrink: 0;
     }
 
     .modal-status {
@@ -763,7 +770,13 @@
 <div id="params-modal" class="modal-overlay">
     <div class="modal-content">
         <div class="modal-header">
-            <h3>Edit Strategy Parameters</h3>
+            <h3>
+                <svg style="width: 16px; height: 16px; display: inline-block; vertical-align: middle; margin-right: 8px; opacity: 0.5;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"></path>
+                </svg>
+                Edit Strategy Parameters
+                <span style="font-size: 0.75rem; font-weight: 400; color: #9ca3af; margin-left: 0.5rem;">(drag to move)</span>
+            </h3>
             <button class="modal-close" id="modal-close-btn">&times;</button>
         </div>
         <div class="modal-body">
@@ -1039,6 +1052,14 @@
     // Initialize Lightweight Charts
     function initializeChart(ohlcv, trades) {
         const container = document.getElementById('chart-container');
+
+        // Remove existing chart instance to prevent duplicates
+        if (chartInstance) {
+            chartInstance.remove();
+            chartInstance = null;
+            candlestickSeries = null;
+            volumeSeries = null;
+        }
 
         chartInstance = LightweightCharts.createChart(container, {
             width: container.clientWidth,
@@ -1386,6 +1407,61 @@
         return '';
     }
 
+    // Setup modal drag & drop functionality
+    function setupModalDrag() {
+        const modalContent = document.querySelector('.modal-content');
+        const modalHeader = document.querySelector('.modal-header');
+
+        let isDragging = false;
+        let currentX;
+        let currentY;
+        let initialX;
+        let initialY;
+
+        modalHeader.addEventListener('mousedown', dragStart);
+        document.addEventListener('mousemove', drag);
+        document.addEventListener('mouseup', dragEnd);
+
+        function dragStart(e) {
+            // Don't drag if clicking on close button or other interactive elements
+            if (e.target.closest('.modal-close') || e.target.closest('button')) {
+                return;
+            }
+
+            initialX = e.clientX - (modalContent.offsetLeft || 0);
+            initialY = e.clientY - (modalContent.offsetTop || 0);
+
+            isDragging = true;
+        }
+
+        function drag(e) {
+            if (!isDragging) return;
+
+            e.preventDefault();
+
+            currentX = e.clientX - initialX;
+            currentY = e.clientY - initialY;
+
+            // Keep modal within viewport bounds
+            const maxX = window.innerWidth - modalContent.offsetWidth;
+            const maxY = window.innerHeight - modalContent.offsetHeight;
+
+            currentX = Math.max(0, Math.min(currentX, maxX));
+            currentY = Math.max(0, Math.min(currentY, maxY));
+
+            modalContent.style.left = currentX + 'px';
+            modalContent.style.top = currentY + 'px';
+            modalContent.style.transform = 'none';
+        }
+
+        function dragEnd() {
+            isDragging = false;
+        }
+    }
+
+    // Initialize modal drag functionality
+    setupModalDrag();
+
     // Open modal
     editParamsBtn.addEventListener('click', async () => {
         try {
@@ -1419,6 +1495,12 @@
     function closeModal() {
         modal.classList.remove('active');
         setModalStatus('', '');
+
+        // Reset modal position to center
+        const modalContent = document.querySelector('.modal-content');
+        modalContent.style.left = '50%';
+        modalContent.style.top = '50px';
+        modalContent.style.transform = 'translateX(-50%)';
     }
 
     modalCloseBtn.addEventListener('click', closeModal);
@@ -1591,10 +1673,10 @@
             // Disable buttons
             saveParamsBtn.disabled = true;
             recalculateBtn.disabled = true;
-            setModalStatus('Saving parameters...', 'loading');
+            setModalStatus('Recalculating backtest...', 'loading');
 
-            // Send save request
-            const response = await fetch('/ui/strategies/{{ name }}/save-params', {
+            // Step 1: Recalculate backtest with new parameters
+            const recalcResponse = await fetch('/ui/strategies/{{ name }}/recalculate', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1605,18 +1687,52 @@
                 })
             });
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || `Save failed: ${response.status}`);
+            if (!recalcResponse.ok) {
+                const errorData = await recalcResponse.json();
+                throw new Error(errorData.detail || `Recalculate failed: ${recalcResponse.status}`);
             }
 
-            const data = await response.json();
+            const recalcData = await recalcResponse.json();
 
-            if (!data.success) {
+            if (!recalcData.success) {
+                throw new Error('Recalculate failed');
+            }
+
+            // Update summary on page
+            updateSummary(recalcData.summary);
+
+            // Reload chart data
+            setModalStatus('Updating chart...', 'loading');
+            await loadChartData();
+
+            // Step 2: Save parameters to disk
+            setModalStatus('Saving parameters...', 'loading');
+            const saveResponse = await fetch('/ui/strategies/{{ name }}/save-params', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    csrf_token: getCsrfToken(),
+                    params: params
+                })
+            });
+
+            if (!saveResponse.ok) {
+                const errorData = await saveResponse.json();
+                throw new Error(errorData.detail || `Save failed: ${saveResponse.status}`);
+            }
+
+            const saveData = await saveResponse.json();
+
+            if (!saveData.success) {
                 throw new Error('Save failed');
             }
 
-            setModalStatus('Parameters saved successfully!', 'success');
+            // Store updated params
+            currentParams = params;
+
+            setModalStatus('Parameters saved and backtest recalculated successfully!', 'success');
 
             // Close modal after a short delay
             setTimeout(() => {
