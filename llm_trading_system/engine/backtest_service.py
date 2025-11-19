@@ -138,6 +138,8 @@ def run_backtest_from_config_dict(
         "avg_trade_pnl": avg_trade_pnl,
         "final_equity": result.final_equity,
         "initial_equity": initial_equity,
+        "fee_rate": fee_rate,
+        "slippage_bps": slippage_bps,
     }
 
     # Optionally include equity curve
