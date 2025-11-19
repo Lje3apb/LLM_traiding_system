@@ -46,6 +46,8 @@ class PortfolioSimulator:
     _is_bankrupt: bool = False
     # Issue #4: Trailing stop tracking
     _highest_equity_in_position: float = 0.0  # Track peak for trailing stop
+    # Fix: Track equity BEFORE opening position (before entry fees) for correct trade.pnl calculation
+    _equity_before_position: float = 0.0
 
     def __post_init__(self) -> None:
         """Initialize entry equity tracking after dataclass init."""
@@ -211,6 +213,9 @@ class PortfolioSimulator:
         units = (notional / trade_price) * direction
         entry_fee = notional * self.fee_rate
 
+        # Fix: Save equity BEFORE subtracting entry fee for correct trade.pnl calculation
+        self._equity_before_position = current_equity
+
         self.account.equity = current_equity - entry_fee
 
         # Check for bankruptcy (margin call)
@@ -222,6 +227,7 @@ class PortfolioSimulator:
             self._position_units = 0.0
             self._position_open_time = None
             self._total_entry_fees = 0.0
+            self._equity_before_position = 0.0
             return
 
         self._entry_equity = self.account.equity
@@ -247,6 +253,12 @@ class PortfolioSimulator:
 
         equity_after = self._entry_equity + pnl - exit_fee
         position_fraction = abs(self.account.position_size)
+
+        # Fix: Calculate trade PnL as total equity change from position open to close
+        # This correctly includes all fees (entry + partial adjustments + exit)
+        # and all PnL from partial position changes (increase/decrease)
+        trade_pnl = equity_after - self._equity_before_position
+
         trade = Trade(
             open_time=self._position_open_time,
             close_time=bar.timestamp,
@@ -254,7 +266,7 @@ class PortfolioSimulator:
             entry_price=self.account.entry_price,
             exit_price=trade_exit_price,
             size=position_fraction,
-            pnl=pnl - self._total_entry_fees - exit_fee,
+            pnl=trade_pnl,
         )
         self.trades.append(trade)
 
@@ -267,6 +279,8 @@ class PortfolioSimulator:
         self._total_entry_fees = 0.0
         # Issue #4: Reset trailing stop tracking
         self._highest_equity_in_position = 0.0
+        # Fix: Reset equity before position
+        self._equity_before_position = 0.0
 
     def _adjust_position(
         self,
