@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
 from llm_trading_system.api.auth import get_current_user, require_auth
+from llm_trading_system.api.rate_limiter import limiter
 from llm_trading_system.api.services.validation import (
     sanitize_error_message,
     validate_data_path,
@@ -30,9 +31,8 @@ logger = logging.getLogger(__name__)
 # Create API router
 router = APIRouter()
 
-# Templates and limiter will be set by server.py after router creation
+# Templates will be set by server.py after router creation
 templates = None
-limiter = None
 
 # Global storage for backtest results (in-memory cache)
 # Key: strategy name, Value: dict with summary, ohlcv_data, trades, data_path

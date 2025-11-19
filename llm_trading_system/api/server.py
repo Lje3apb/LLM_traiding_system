@@ -14,9 +14,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from starlette.middleware.sessions import SessionMiddleware
 
 from llm_trading_system.api.auth import (
@@ -203,15 +202,10 @@ async def unauthorized_handler(request: Request, exc: HTTPException):
 # Rate Limiting (DoS Protection & Abuse Prevention)
 # ============================================================================
 
-# Initialize rate limiter with global defaults
-# Uses IP address as identifier for rate limiting
-# Note: Use os.devnull to prevent .env reading and avoid Windows encoding issues
-limiter = Limiter(
-    key_func=get_remote_address,
-    storage_uri="memory://",  # Use in-memory storage (suitable for single-instance deployment)
-    config_filename=os.devnull,  # Use null device to prevent .env reading (cross-platform fix for Windows encoding)
-    default_limits=["1000/hour"],  # Global fallback: 1000 requests per hour per IP
-)
+# Import shared rate limiter (created in rate_limiter.py to avoid circular imports
+# and Windows .env encoding issues)
+from llm_trading_system.api.rate_limiter import limiter
+
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -306,17 +300,13 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 # Include API routes from separate module
 app.include_router(api_routes.router, tags=["API"])
 
-# Share the rate limiter instance with api_routes
-api_routes.limiter = limiter
-
 # ============================================================================
 # Register UI Routes
 # ============================================================================
 # Include UI routes from separate module
 app.include_router(ui_routes.router, tags=["UI"])
 
-# Share rate limiter and templates with ui_routes
-ui_routes.limiter = limiter
+# Share templates with ui_routes (limiter is already shared via rate_limiter.py)
 ui_routes.templates = templates
 
 # ============================================================================
