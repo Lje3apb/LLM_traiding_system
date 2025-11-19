@@ -1599,10 +1599,10 @@
             // Disable buttons
             saveParamsBtn.disabled = true;
             recalculateBtn.disabled = true;
-            setModalStatus('Saving parameters...', 'loading');
+            setModalStatus('Recalculating backtest...', 'loading');
 
-            // Send save request
-            const response = await fetch('/ui/strategies/{{ name }}/save-params', {
+            // Step 1: Recalculate backtest with new parameters
+            const recalcResponse = await fetch('/ui/strategies/{{ name }}/recalculate', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1613,18 +1613,52 @@
                 })
             });
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || `Save failed: ${response.status}`);
+            if (!recalcResponse.ok) {
+                const errorData = await recalcResponse.json();
+                throw new Error(errorData.detail || `Recalculate failed: ${recalcResponse.status}`);
             }
 
-            const data = await response.json();
+            const recalcData = await recalcResponse.json();
 
-            if (!data.success) {
+            if (!recalcData.success) {
+                throw new Error('Recalculate failed');
+            }
+
+            // Update summary on page
+            updateSummary(recalcData.summary);
+
+            // Reload chart data
+            setModalStatus('Updating chart...', 'loading');
+            await loadChartData();
+
+            // Step 2: Save parameters to disk
+            setModalStatus('Saving parameters...', 'loading');
+            const saveResponse = await fetch('/ui/strategies/{{ name }}/save-params', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    csrf_token: getCsrfToken(),
+                    params: params
+                })
+            });
+
+            if (!saveResponse.ok) {
+                const errorData = await saveResponse.json();
+                throw new Error(errorData.detail || `Save failed: ${saveResponse.status}`);
+            }
+
+            const saveData = await saveResponse.json();
+
+            if (!saveData.success) {
                 throw new Error('Save failed');
             }
 
-            setModalStatus('Parameters saved successfully!', 'success');
+            // Store updated params
+            currentParams = params;
+
+            setModalStatus('Parameters saved and backtest recalculated successfully!', 'success');
 
             // Close modal after a short delay
             setTimeout(() => {
