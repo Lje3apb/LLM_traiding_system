@@ -36,5 +36,31 @@
             <p>&copy; 2025 LLM Trading System</p>
         </div>
     </footer>
+
+    <script>
+    // Global CSRF token updater for all forms
+    // Updates hidden csrf_token fields from cookie before form submission
+    // This prevents token mismatch when cookie is refreshed on other page loads
+    function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(';').shift();
+        return null;
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // Find all forms with csrf_token hidden fields
+        const forms = document.querySelectorAll('form[method="POST"]');
+        forms.forEach(function(form) {
+            form.addEventListener('submit', function(e) {
+                const csrfInput = form.querySelector('input[name="csrf_token"]');
+                const currentToken = getCookie('csrf_token');
+                if (csrfInput && currentToken) {
+                    csrfInput.value = currentToken;
+                }
+            });
+        });
+    });
+    </script>
 </body>
 </html>
