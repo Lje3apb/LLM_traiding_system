@@ -34,10 +34,8 @@ header .container {
 }
 
 header h1 {
-    grid-column: 1;
-    grid-row: 1;
-    font-size: 1.8rem;
-    margin: 0;
+    font-size: 1.5rem;
+    margin-bottom: 0.25rem;
 }
 
 header h1 a {
@@ -45,16 +43,29 @@ header h1 a {
     text-decoration: none;
 }
 
+.header-layout {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 2rem;
+}
+
+.brand-nav {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
 header nav {
-    grid-column: 1;
-    grid-row: 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
 }
 
 header nav a {
     color: white;
     text-decoration: none;
-    margin-right: 1.5rem;
-    padding: 0.5rem 1rem;
+    padding: 0.5rem 0.85rem;
     border-radius: 4px;
     transition: background-color 0.2s;
 }
@@ -63,32 +74,30 @@ header nav a:hover {
     background-color: rgba(255, 255, 255, 0.1);
 }
 
-/* User info in header */
-.user-info {
-    grid-column: 2;
-    grid-row: 1;
+.user-actions {
+    margin-left: auto;
     display: flex;
     align-items: center;
-    gap: 15px;
-    align-self: start;
-}
-
-.user-info .username {
-    color: #ecf0f1;
-    font-size: 0.95rem;
-}
-
-.user-info .logout-link {
-    color: #e74c3c;
-    text-decoration: none;
+    gap: 0.75rem;
     font-weight: 500;
-    padding: 0.4rem 0.8rem;
-    border-radius: 4px;
-    transition: background-color 0.2s;
 }
 
-.user-info .logout-link:hover {
-    background-color: rgba(231, 76, 60, 0.2);
+.user-actions span {
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.logout-link {
+    color: #ffb4a9;
+    text-decoration: none;
+    padding: 0.35rem 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.logout-link:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    color: white;
 }
 
 /* Main content */

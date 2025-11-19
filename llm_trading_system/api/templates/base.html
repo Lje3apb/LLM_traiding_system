@@ -8,20 +8,22 @@
 </head>
 <body>
     <header>
-        <div class="container">
-            {% if request.session.get('username') %}
-            <div class="user-info">
-                <span class="username">👤 {{ request.session.get('username') }}</span>
-                <a href="/ui/logout" class="logout-link">Logout</a>
+        <div class="container header-layout">
+            <div class="brand-nav">
+                <h1><a href="/ui/">LLM Trading System</a></h1>
+                <nav>
+                    <a href="/ui/">Strategies</a>
+                    <a href="/ui/strategies/new">New Strategy</a>
+                    <a href="/ui/live">Live Trading</a>
+                    <a href="/ui/settings">Settings</a>
+                </nav>
             </div>
-            {% endif %}
-            <h1><a href="/ui/">LLM Trading System</a></h1>
-            <nav>
-                <a href="/ui/">Strategies</a>
-                <a href="/ui/strategies/new">New Strategy</a>
-                <a href="/ui/live">Live Trading</a>
-                <a href="/ui/settings">Settings</a>
-            </nav>
+            <div class="user-actions">
+                {% if request.session.get('username') %}
+                <span>👤 {{ request.session.get('username') }}</span>
+                <a href="/ui/logout" class="logout-link">Logout</a>
+                {% endif %}
+            </div>
         </div>
     </header>
 
