@@ -1298,3 +1298,297 @@ async def ui_list_data_files(request: Request) -> JSONResponse:
 
     except Exception as e:
         return JSONResponse({"files": [], "error": str(e)})
+
+
+# ============================================================================
+# Interactive Backtest Parameter Editing
+# ============================================================================
+
+
+@router.get("/ui/strategies/{name}/params")
+@limiter.limit("60/minute")  # PARAMETER FETCH: Get strategy parameters
+async def ui_get_strategy_params(request: Request, name: str, user=Depends(require_auth)) -> JSONResponse:
+    """Web UI: Get strategy parameters for editing.
+
+    Args:
+        request: FastAPI request object
+        name: Strategy config name
+
+    Returns:
+        JSON response with strategy parameters
+
+    Raises:
+        HTTPException: If config not found (404) or error loading (500)
+    """
+    try:
+        config = storage.load_config(name)
+
+        # Return all parameters for editing
+        return JSONResponse({
+            "success": True,
+            "params": {
+                # Strategy Type & Mode
+                "strategy_type": config.get("strategy_type", "indicator"),
+                "mode": config.get("mode", "quant_only"),
+                "symbol": config.get("symbol", "BTCUSDT"),
+
+                # Trading Rules (JSON)
+                "rules": config.get("rules", {}),
+
+                # LLM Parameters
+                "k_max": config.get("k_max", 2.0),
+                "llm_horizon_hours": config.get("llm_horizon_hours", 24),
+                "llm_min_prob_edge": config.get("llm_min_prob_edge", 0.55),
+                "llm_min_trend_strength": config.get("llm_min_trend_strength", 0.6),
+                "llm_refresh_interval_bars": config.get("llm_refresh_interval_bars", 60),
+
+                # Indicator Parameters
+                "rsi_len": config.get("rsi_len", 14),
+                "rsi_ovb": config.get("rsi_ovb", 70),
+                "rsi_ovs": config.get("rsi_ovs", 30),
+                "bb_len": config.get("bb_len", 20),
+                "bb_mult": config.get("bb_mult", 2.0),
+                "ema_fast_len": config.get("ema_fast_len", 12),
+                "ema_slow_len": config.get("ema_slow_len", 26),
+                "atr_len": config.get("atr_len", 14),
+                "adx_len": config.get("adx_len", 14),
+                "vol_ma_len": config.get("vol_ma_len", 21),
+                "vol_mult": config.get("vol_mult", 0.5),
+
+                # Position & Risk Management
+                "base_size": config.get("base_size", 0.1),
+                "allow_long": config.get("allow_long", True),
+                "allow_short": config.get("allow_short", True),
+                "base_position_pct": config.get("base_position_pct", 10.0),
+                "pyramiding": config.get("pyramiding", 1),
+                "use_martingale": config.get("use_martingale", False),
+                "martingale_mult": config.get("martingale_mult", 1.5),
+
+                # TP/SL
+                "use_tp_sl": config.get("use_tp_sl", False),
+                "tp_long_pct": config.get("tp_long_pct", 2.0),
+                "sl_long_pct": config.get("sl_long_pct", 2.0),
+                "tp_short_pct": config.get("tp_short_pct", 2.0),
+                "sl_short_pct": config.get("sl_short_pct", 2.0),
+
+                # Time Filter
+                "time_filter_enabled": config.get("time_filter_enabled", False),
+                "time_filter_start_hour": config.get("time_filter_start_hour", 0),
+                "time_filter_end_hour": config.get("time_filter_end_hour", 23),
+            }
+        })
+
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Config '{name}' not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load params: {e}")
+
+
+@router.post("/ui/strategies/{name}/recalculate")
+@limiter.limit("10/minute;100/day")  # HEAVY OPERATION: Recalculate backtest
+async def ui_recalculate_backtest(
+    request: Request,
+    name: str,
+    user=Depends(require_auth),  # Authentication required
+) -> JSONResponse:
+    """Web UI: Recalculate backtest with new parameters (without saving).
+
+    Args:
+        request: FastAPI request object
+        name: Strategy config name
+
+    Returns:
+        JSON response with new backtest results
+
+    Raises:
+        HTTPException: If config not found or backtest fails
+    """
+    try:
+        # Get JSON body
+        body = await request.json()
+
+        # Validate CSRF token from JSON body
+        csrf_token = body.get("csrf_token")
+        _verify_csrf_token(request, csrf_token)
+
+        # Get parameters from body
+        params = body.get("params", {})
+
+        # Get last backtest data path from cache
+        if name not in _backtest_cache:
+            raise HTTPException(
+                status_code=400,
+                detail="No previous backtest found. Please run backtest first."
+            )
+
+        cached_data = _backtest_cache[name]
+        data_path = cached_data["data_path"]
+        old_summary = cached_data["summary"]
+
+        # Load base config and merge with new parameters
+        config = storage.load_config(name)
+
+        # Update config with new parameters (without saving to disk)
+        config.update({
+            "strategy_type": params.get("strategy_type", config.get("strategy_type")),
+            "mode": params.get("mode", config.get("mode")),
+            "symbol": params.get("symbol", config.get("symbol")),
+            "rules": params.get("rules", config.get("rules")),
+            "k_max": float(params.get("k_max", config.get("k_max", 2.0))),
+            "llm_horizon_hours": int(params.get("llm_horizon_hours", config.get("llm_horizon_hours", 24))),
+            "llm_min_prob_edge": float(params.get("llm_min_prob_edge", config.get("llm_min_prob_edge", 0.55))),
+            "llm_min_trend_strength": float(params.get("llm_min_trend_strength", config.get("llm_min_trend_strength", 0.6))),
+            "llm_refresh_interval_bars": int(params.get("llm_refresh_interval_bars", config.get("llm_refresh_interval_bars", 60))),
+            "rsi_len": int(params.get("rsi_len", config.get("rsi_len", 14))),
+            "rsi_ovb": int(params.get("rsi_ovb", config.get("rsi_ovb", 70))),
+            "rsi_ovs": int(params.get("rsi_ovs", config.get("rsi_ovs", 30))),
+            "bb_len": int(params.get("bb_len", config.get("bb_len", 20))),
+            "bb_mult": float(params.get("bb_mult", config.get("bb_mult", 2.0))),
+            "ema_fast_len": int(params.get("ema_fast_len", config.get("ema_fast_len", 12))),
+            "ema_slow_len": int(params.get("ema_slow_len", config.get("ema_slow_len", 26))),
+            "atr_len": int(params.get("atr_len", config.get("atr_len", 14))),
+            "adx_len": int(params.get("adx_len", config.get("adx_len", 14))),
+            "vol_ma_len": int(params.get("vol_ma_len", config.get("vol_ma_len", 21))),
+            "vol_mult": float(params.get("vol_mult", config.get("vol_mult", 0.5))),
+            "base_size": float(params.get("base_size", config.get("base_size", 0.1))),
+            "allow_long": bool(params.get("allow_long", config.get("allow_long", True))),
+            "allow_short": bool(params.get("allow_short", config.get("allow_short", True))),
+            "base_position_pct": float(params.get("base_position_pct", config.get("base_position_pct", 10.0))),
+            "pyramiding": int(params.get("pyramiding", config.get("pyramiding", 1))),
+            "use_martingale": bool(params.get("use_martingale", config.get("use_martingale", False))),
+            "martingale_mult": float(params.get("martingale_mult", config.get("martingale_mult", 1.5))),
+            "use_tp_sl": bool(params.get("use_tp_sl", config.get("use_tp_sl", False))),
+            "tp_long_pct": float(params.get("tp_long_pct", config.get("tp_long_pct", 2.0))),
+            "sl_long_pct": float(params.get("sl_long_pct", config.get("sl_long_pct", 2.0))),
+            "tp_short_pct": float(params.get("tp_short_pct", config.get("tp_short_pct", 2.0))),
+            "sl_short_pct": float(params.get("sl_short_pct", config.get("sl_short_pct", 2.0))),
+            "time_filter_enabled": bool(params.get("time_filter_enabled", config.get("time_filter_enabled", False))),
+            "time_filter_start_hour": int(params.get("time_filter_start_hour", config.get("time_filter_start_hour", 0))),
+            "time_filter_end_hour": int(params.get("time_filter_end_hour", config.get("time_filter_end_hour", 23))),
+        })
+
+        # Run backtest with new parameters
+        summary = run_backtest_from_config_dict(
+            config=config,
+            data_path=data_path,
+            use_llm=False,  # Don't use LLM for recalculation by default
+            llm_model=None,
+            llm_url=None,
+            initial_equity=old_summary.get("initial_equity", 10000.0),
+            fee_rate=0.001,
+            slippage_bps=1.0,
+        )
+
+        # Update cache with new results
+        _backtest_cache[name] = {
+            "summary": summary,
+            "data_path": data_path,
+            "config": config,
+        }
+
+        # Return new summary
+        return JSONResponse({
+            "success": True,
+            "summary": summary
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Recalculate backtest failed for '{name}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Recalculate failed: {sanitize_error_message(e)}"
+        )
+
+
+@router.post("/ui/strategies/{name}/save-params")
+@limiter.limit("30/minute;500/hour")  # STANDARD BUSINESS (WRITE): Save strategy parameters
+async def ui_save_strategy_params(
+    request: Request,
+    name: str,
+    user=Depends(require_auth),  # Authentication required
+) -> JSONResponse:
+    """Web UI: Save strategy parameters to disk.
+
+    Args:
+        request: FastAPI request object
+        name: Strategy config name
+
+    Returns:
+        JSON response with success status
+
+    Raises:
+        HTTPException: If validation fails or save error
+    """
+    try:
+        # Get JSON body
+        body = await request.json()
+
+        # Validate CSRF token from JSON body
+        csrf_token = body.get("csrf_token")
+        _verify_csrf_token(request, csrf_token)
+
+        # Get parameters from body
+        params = body.get("params", {})
+
+        # Load base config
+        config = storage.load_config(name)
+
+        # Update config with new parameters
+        config.update({
+            "strategy_type": params.get("strategy_type", config.get("strategy_type")),
+            "mode": params.get("mode", config.get("mode")),
+            "symbol": params.get("symbol", config.get("symbol")),
+            "rules": params.get("rules", config.get("rules")),
+            "k_max": float(params.get("k_max", config.get("k_max", 2.0))),
+            "llm_horizon_hours": int(params.get("llm_horizon_hours", config.get("llm_horizon_hours", 24))),
+            "llm_min_prob_edge": float(params.get("llm_min_prob_edge", config.get("llm_min_prob_edge", 0.55))),
+            "llm_min_trend_strength": float(params.get("llm_min_trend_strength", config.get("llm_min_trend_strength", 0.6))),
+            "llm_refresh_interval_bars": int(params.get("llm_refresh_interval_bars", config.get("llm_refresh_interval_bars", 60))),
+            "rsi_len": int(params.get("rsi_len", config.get("rsi_len", 14))),
+            "rsi_ovb": int(params.get("rsi_ovb", config.get("rsi_ovb", 70))),
+            "rsi_ovs": int(params.get("rsi_ovs", config.get("rsi_ovs", 30))),
+            "bb_len": int(params.get("bb_len", config.get("bb_len", 20))),
+            "bb_mult": float(params.get("bb_mult", config.get("bb_mult", 2.0))),
+            "ema_fast_len": int(params.get("ema_fast_len", config.get("ema_fast_len", 12))),
+            "ema_slow_len": int(params.get("ema_slow_len", config.get("ema_slow_len", 26))),
+            "atr_len": int(params.get("atr_len", config.get("atr_len", 14))),
+            "adx_len": int(params.get("adx_len", config.get("adx_len", 14))),
+            "vol_ma_len": int(params.get("vol_ma_len", config.get("vol_ma_len", 21))),
+            "vol_mult": float(params.get("vol_mult", config.get("vol_mult", 0.5))),
+            "base_size": float(params.get("base_size", config.get("base_size", 0.1))),
+            "allow_long": bool(params.get("allow_long", config.get("allow_long", True))),
+            "allow_short": bool(params.get("allow_short", config.get("allow_short", True))),
+            "base_position_pct": float(params.get("base_position_pct", config.get("base_position_pct", 10.0))),
+            "pyramiding": int(params.get("pyramiding", config.get("pyramiding", 1))),
+            "use_martingale": bool(params.get("use_martingale", config.get("use_martingale", False))),
+            "martingale_mult": float(params.get("martingale_mult", config.get("martingale_mult", 1.5))),
+            "use_tp_sl": bool(params.get("use_tp_sl", config.get("use_tp_sl", False))),
+            "tp_long_pct": float(params.get("tp_long_pct", config.get("tp_long_pct", 2.0))),
+            "sl_long_pct": float(params.get("sl_long_pct", config.get("sl_long_pct", 2.0))),
+            "tp_short_pct": float(params.get("tp_short_pct", config.get("tp_short_pct", 2.0))),
+            "sl_short_pct": float(params.get("sl_short_pct", config.get("sl_short_pct", 2.0))),
+            "time_filter_enabled": bool(params.get("time_filter_enabled", config.get("time_filter_enabled", False))),
+            "time_filter_start_hour": int(params.get("time_filter_start_hour", config.get("time_filter_start_hour", 0))),
+            "time_filter_end_hour": int(params.get("time_filter_end_hour", config.get("time_filter_end_hour", 23))),
+        })
+
+        # Save config to disk
+        storage.save_config(name, config)
+
+        return JSONResponse({
+            "success": True,
+            "message": "Strategy parameters saved successfully"
+        })
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Save params failed for '{name}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save parameters: {sanitize_error_message(e)}"
+        )
