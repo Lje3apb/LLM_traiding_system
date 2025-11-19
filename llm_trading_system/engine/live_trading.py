@@ -180,6 +180,27 @@ class LiveTradingEngine:
         self.on_order_executed: Callable[[Order, Bar], None] | None = None
         self.on_error: Callable[[Exception], None] | None = None
 
+        # For paper trading: Create a Binance client to get real prices
+        self._price_feed_client: ExchangeClient | None = None
+        from llm_trading_system.exchange.paper import PaperExchangeClient
+        if isinstance(exchange, PaperExchangeClient):
+            try:
+                from llm_trading_system.exchange.binance import BinanceFuturesClient
+                from llm_trading_system.exchange.config import get_exchange_config_from_env
+
+                # Create read-only Binance client for price feed
+                config = get_exchange_config_from_env()
+                # Use testnet for safety in paper trading
+                config.testnet = True
+                # Don't require API keys for price feed
+                config.api_key = ""
+                config.api_secret = ""
+                self._price_feed_client = BinanceFuturesClient(config)
+                logger.info("Paper trading: Using Binance testnet for price feed")
+            except Exception as e:
+                logger.warning(f"Failed to create price feed client: {e}. Will use fallback.")
+                self._price_feed_client = None
+
         logger.info(
             f"LiveTradingEngine initialized: symbol={symbol}, "
             f"timeframe={timeframe}, poll_interval={poll_interval_sec}s"
@@ -195,8 +216,44 @@ class LiveTradingEngine:
             Exception: If critical error occurs and no error handler set
         """
         try:
-            # Get current price from exchange
-            price = self.exchange.get_latest_price(self.symbol)
+            # For paper trading: Get real price from price feed and update market data
+            from llm_trading_system.exchange.paper import PaperExchangeClient
+            if isinstance(self.exchange, PaperExchangeClient):
+                if self._price_feed_client:
+                    # Get real price from Binance
+                    try:
+                        price = self._price_feed_client.get_latest_price(self.symbol)
+                    except Exception as e:
+                        logger.error(f"Failed to get price from feed: {e}")
+                        # Fallback: Use a synthetic price if feed fails
+                        price = 50000.0 if not hasattr(self, '_last_price') else self._last_price
+                else:
+                    # Fallback: Use synthetic price
+                    if not hasattr(self, '_last_price'):
+                        self._last_price = 50000.0
+                    # Add small random walk for testing
+                    import random
+                    self._last_price *= (1 + random.uniform(-0.001, 0.001))
+                    price = self._last_price
+
+                # Create bar and update paper exchange market data
+                timestamp = datetime.now(timezone.utc)
+                bar = Bar(
+                    timestamp=timestamp,
+                    open=price,
+                    high=price,
+                    low=price,
+                    close=price,
+                    volume=0.0
+                )
+                self.exchange.update_market_data(bar)
+
+                # Now get price from exchange (will work because we updated market data)
+                price = self.exchange.get_latest_price(self.symbol)
+            else:
+                # Real trading: Get price directly from exchange
+                price = self.exchange.get_latest_price(self.symbol)
+
             timestamp = datetime.now(timezone.utc)
 
             logger.debug(f"Polled price: {price} at {timestamp}")
