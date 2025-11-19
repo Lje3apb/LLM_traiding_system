@@ -119,15 +119,21 @@ async def login_page(
     Returns:
         HTML response with login form
     """
+    import os
+
     # If already logged in, redirect to next page
     current_user = get_current_user(request)
     if current_user:
         return RedirectResponse(url=next, status_code=303)
 
-    # Get CSRF token from cookie
-    csrf_token = request.cookies.get("csrf_token", "")
+    # Generate a new CSRF token for this page load
+    csrf_token = secrets.token_hex(32)
 
-    return templates.TemplateResponse(
+    # Determine if we're in production
+    is_production = os.getenv("ENV", "").lower() == "production"
+
+    # Create response with CSRF token in cookie
+    response = templates.TemplateResponse(
         "login.html",
         {
             "request": request,
@@ -136,6 +142,18 @@ async def login_page(
             "csrf_token": csrf_token,
         },
     )
+
+    # Set CSRF cookie (must match the token in the form)
+    response.set_cookie(
+        key="csrf_token",
+        value=csrf_token,
+        httponly=False,  # Allow JavaScript to read for form submission
+        samesite="strict",  # Prevent CSRF from external sites
+        secure=is_production,  # HTTPS only in production
+        max_age=3600,  # 1 hour expiration
+    )
+
+    return response
 
 
 @router.post("/ui/login")
