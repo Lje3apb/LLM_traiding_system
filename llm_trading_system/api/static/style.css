@@ -26,6 +26,13 @@ header {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+header .container {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    gap: 0.8rem;
+}
+
 header h1 {
     font-size: 1.5rem;
     margin-bottom: 0.25rem;
@@ -423,13 +430,42 @@ footer p {
         grid-template-columns: 1fr;
     }
 
-    header nav {
-        display: block;
-        margin-top: 1rem;
+    header .container {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto;
+        gap: 0.5rem;
     }
 
     header h1 {
-        display: block;
-        margin-bottom: 0.5rem;
+        grid-column: 1;
+        grid-row: 1;
+        font-size: 1.4rem;
+    }
+
+    header nav {
+        grid-column: 1;
+        grid-row: 3;
+        margin-top: 0.5rem;
+    }
+
+    header nav a {
+        display: inline-block;
+        margin-bottom: 0.3rem;
+    }
+
+    .user-info {
+        grid-column: 1;
+        grid-row: 2;
+        justify-content: flex-start;
+        margin-top: 0.3rem;
+    }
+
+    .user-info .username {
+        font-size: 0.85rem;
+    }
+
+    .user-info .logout-link {
+        padding: 0.3rem 0.6rem;
+        font-size: 0.85rem;
     }
 }
