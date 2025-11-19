@@ -196,7 +196,9 @@ class LiveTradingEngine:
                 # Don't require API keys for public endpoints (price data, OHLCV)
                 config.api_key = ""
                 config.api_secret = ""
-                self._price_feed_client = BinanceFuturesClient(config)
+                self._price_feed_client = BinanceFuturesClient(
+                    config, require_auth=False
+                )
                 logger.info("Paper trading: Using Binance mainnet for price feed (read-only)")
             except Exception as e:
                 logger.warning(f"Failed to create price feed client: {e}. Will use fallback.")
