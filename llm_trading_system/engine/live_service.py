@@ -526,14 +526,38 @@ class LiveSession:
         """Serialize SessionState for JSON response."""
         return {
             "timestamp": state.timestamp.isoformat(),
-            "last_bar": asdict(state.last_bar) if state.last_bar else None,
+            "last_bar": self._serialize_bar(state.last_bar) if state.last_bar else None,
             "position": asdict(state.position) if state.position else None,
             "equity": state.equity,
             "balance": state.balance,
             "realized_pnl": state.realized_pnl,
-            "recent_trades": [asdict(t) for t in state.recent_trades],
+            "recent_trades": [self._serialize_trade_snapshot(t) for t in state.recent_trades],
             "status": state.status,
             "mode": state.mode,
+        }
+
+    def _serialize_bar(self, bar: BarSnapshot) -> dict[str, Any]:
+        """Serialize BarSnapshot with datetime conversion."""
+        return {
+            "timestamp": bar.timestamp.isoformat(),
+            "open": bar.open,
+            "high": bar.high,
+            "low": bar.low,
+            "close": bar.close,
+            "volume": bar.volume,
+        }
+
+    def _serialize_trade_snapshot(self, trade: TradeSnapshot) -> dict[str, Any]:
+        """Serialize TradeSnapshot with datetime conversion."""
+        return {
+            "open_time": trade.open_time.isoformat(),
+            "close_time": trade.close_time.isoformat() if trade.close_time else None,
+            "side": trade.side,
+            "size": trade.size,
+            "entry_price": trade.entry_price,
+            "exit_price": trade.exit_price,
+            "pnl": trade.pnl,
+            "pnl_percent": trade.pnl_percent,
         }
 
     def _trade_to_dict(self, trade: Trade, index: int) -> dict[str, Any]:

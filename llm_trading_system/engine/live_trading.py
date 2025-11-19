@@ -190,13 +190,14 @@ class LiveTradingEngine:
 
                 # Create read-only Binance client for price feed
                 config = get_exchange_config_from_env()
-                # Use testnet for safety in paper trading
-                config.testnet = True
-                # Don't require API keys for price feed
+                # Use MAINNET for reliable historical data and prices
+                # This is safe because PaperExchangeClient simulates orders without real execution
+                config.testnet = False
+                # Don't require API keys for public endpoints (price data, OHLCV)
                 config.api_key = ""
                 config.api_secret = ""
                 self._price_feed_client = BinanceFuturesClient(config)
-                logger.info("Paper trading: Using Binance testnet for price feed")
+                logger.info("Paper trading: Using Binance mainnet for price feed (read-only)")
             except Exception as e:
                 logger.warning(f"Failed to create price feed client: {e}. Will use fallback.")
                 self._price_feed_client = None
@@ -482,17 +483,23 @@ class LiveTradingEngine:
             if isinstance(self.exchange, PaperExchangeClient) and self._price_feed_client:
                 # Use the price feed client to get historical data
                 exchange_client = self._price_feed_client
+                logger.info(f"Using price feed client for historical data: {type(exchange_client).__name__}")
             else:
                 # Use the main exchange client
                 exchange_client = self.exchange
+                logger.info(f"Using main exchange client for historical data: {type(exchange_client).__name__}")
 
             # Try to use ccxt fetch_ohlcv if available
             if hasattr(exchange_client, 'exchange') and hasattr(exchange_client.exchange, 'fetch_ohlcv'):
+                logger.info(f"Fetching {limit} bars for {self.symbol} ({self.timeframe}) from exchange...")
+
                 ohlcv_data = exchange_client.exchange.fetch_ohlcv(
                     self.symbol,
                     self.timeframe,
                     limit=limit
                 )
+
+                logger.info(f"Received {len(ohlcv_data) if ohlcv_data else 0} candles from exchange")
 
                 bars = []
                 for candle in ohlcv_data:
@@ -506,13 +513,18 @@ class LiveTradingEngine:
                     )
                     bars.append(bar)
 
+                logger.info(f"Successfully converted {len(bars)} candles to Bar objects")
                 return bars
             else:
-                logger.warning("Exchange client does not support historical data fetching")
+                logger.warning(
+                    f"Exchange client does not support historical data fetching. "
+                    f"Has 'exchange': {hasattr(exchange_client, 'exchange')}, "
+                    f"Has 'fetch_ohlcv': {hasattr(exchange_client.exchange, 'fetch_ohlcv') if hasattr(exchange_client, 'exchange') else False}"
+                )
                 return []
 
         except Exception as e:
-            logger.error(f"Failed to fetch historical bars: {e}")
+            logger.error(f"Failed to fetch historical bars: {e}", exc_info=True)
             return []
 
     def set_callbacks(
