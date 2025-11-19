@@ -9,7 +9,16 @@ import secrets
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Body,
+    Depends,
+    FastAPI,
+    Form,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -430,7 +439,11 @@ async def csrf_middleware(request: Request, call_next):
 
 @app.post("/api/live/sessions")
 @limiter.limit("10/minute;100/day")  # HEAVY OPERATION: Create live trading session
-async def create_live_session(request_obj: Request, request: dict[str, Any], user=Depends(require_auth)) -> dict[str, Any]:
+async def create_live_session(
+    request: Request,
+    payload: dict[str, Any] = Body(...),
+    user=Depends(require_auth),
+) -> dict[str, Any]:
     """Create a new live/paper trading session.
 
     Request body should contain:
@@ -452,7 +465,7 @@ async def create_live_session(request_obj: Request, request: dict[str, Any], use
         HTTPException: If validation fails (400/422) or creation error (500)
     """
     # Extract and validate required fields
-    body = request
+    body = payload
     if "mode" not in body:
         raise HTTPException(status_code=400, detail="Missing 'mode' field")
 
