@@ -415,11 +415,215 @@
             padding: 0.5rem 0.25rem;
         }
     }
+
+    /* Modal Styles */
+    .modal-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 1000;
+        overflow-y: auto;
+        padding: 2rem 1rem;
+    }
+
+    .modal-overlay.active {
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+    }
+
+    .modal-content {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        width: 100%;
+        max-width: 900px;
+        max-height: calc(100vh - 4rem);
+        overflow-y: auto;
+        position: relative;
+        margin: auto;
+    }
+
+    .modal-header {
+        padding: 1.5rem;
+        border-bottom: 2px solid var(--border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        position: sticky;
+        top: 0;
+        background: white;
+        z-index: 10;
+    }
+
+    .modal-header h3 {
+        margin: 0;
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: #1f2937;
+    }
+
+    .modal-close {
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        color: #6b7280;
+        cursor: pointer;
+        padding: 0.25rem 0.5rem;
+        line-height: 1;
+        border-radius: 4px;
+        transition: background 0.15s;
+    }
+
+    .modal-close:hover {
+        background: #f3f4f6;
+        color: #374151;
+    }
+
+    .modal-body {
+        padding: 1.5rem;
+    }
+
+    .modal-section {
+        margin-bottom: 2rem;
+    }
+
+    .modal-section:last-child {
+        margin-bottom: 0;
+    }
+
+    .modal-section h4 {
+        margin: 0 0 1rem 0;
+        font-size: 1.125rem;
+        font-weight: 600;
+        color: #374151;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .param-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1rem;
+    }
+
+    .param-group {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .param-group label {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: #374151;
+        margin-bottom: 0.25rem;
+    }
+
+    .param-group input,
+    .param-group select,
+    .param-group textarea {
+        padding: 0.5rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        font-size: 0.875rem;
+        font-family: inherit;
+        transition: border-color 0.15s;
+    }
+
+    .param-group input:focus,
+    .param-group select:focus,
+    .param-group textarea:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .param-group textarea {
+        font-family: monospace;
+        resize: vertical;
+        min-height: 100px;
+    }
+
+    .param-group input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        margin-top: 0.25rem;
+        cursor: pointer;
+    }
+
+    .modal-footer {
+        padding: 1rem 1.5rem;
+        border-top: 2px solid var(--border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.5rem;
+        position: sticky;
+        bottom: 0;
+        background: white;
+        z-index: 10;
+    }
+
+    .modal-status {
+        font-size: 0.875rem;
+        color: var(--text-muted);
+        font-weight: 500;
+    }
+
+    .modal-status.loading {
+        color: #3b82f6;
+    }
+
+    .modal-status.success {
+        color: var(--success-color);
+    }
+
+    .modal-status.error {
+        color: var(--danger-color);
+    }
+
+    .modal-buttons {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    @media (max-width: 768px) {
+        .modal-content {
+            max-width: 100%;
+            margin: 0;
+        }
+
+        .param-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .modal-footer {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .modal-buttons {
+            flex-direction: column;
+        }
+    }
 </style>
 
 <div class="page-header">
     <h2>Backtest Results: {{ name }}</h2>
-    <a href="/ui/strategies/{{ name }}/edit" class="btn btn-secondary">Edit Strategy</a>
+    <div style="display: flex; gap: 0.5rem;">
+        <button id="edit-params-btn" class="btn btn-primary" type="button">
+            <svg style="width: 16px; height: 16px; display: inline-block; vertical-align: middle;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+            </svg>
+            Edit Strategy Params
+        </button>
+        <a href="/ui/strategies/{{ name }}/edit" class="btn btn-secondary">Edit Strategy</a>
+    </div>
 </div>
 
 <div class="results-summary">
@@ -553,6 +757,239 @@
 <div class="form-actions">
     <a href="/ui/" class="btn btn-secondary">Back to Strategies</a>
     <a href="/ui/strategies/{{ name }}/backtest" class="btn btn-primary">Run Again</a>
+</div>
+
+<!-- Edit Strategy Parameters Modal -->
+<div id="params-modal" class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Edit Strategy Parameters</h3>
+            <button class="modal-close" id="modal-close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="params-form">
+                <!-- Strategy Type & Mode -->
+                <div class="modal-section">
+                    <h4>Strategy Type & Mode</h4>
+                    <div class="param-grid">
+                        <div class="param-group">
+                            <label for="param_strategy_type">Strategy Type</label>
+                            <select id="param_strategy_type" name="strategy_type">
+                                <option value="indicator">Indicator</option>
+                                <option value="llm">LLM</option>
+                                <option value="hybrid">Hybrid</option>
+                            </select>
+                        </div>
+                        <div class="param-group">
+                            <label for="param_mode">Mode</label>
+                            <select id="param_mode" name="mode">
+                                <option value="quant_only">Quant Only</option>
+                                <option value="llm_only">LLM Only</option>
+                                <option value="hybrid">Hybrid</option>
+                            </select>
+                        </div>
+                        <div class="param-group">
+                            <label for="param_symbol">Symbol</label>
+                            <input type="text" id="param_symbol" name="symbol" placeholder="BTCUSDT">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Indicator Parameters -->
+                <div class="modal-section">
+                    <h4>Indicator Parameters</h4>
+                    <div class="param-grid">
+                        <div class="param-group">
+                            <label for="param_rsi_len">RSI Length</label>
+                            <input type="number" id="param_rsi_len" name="rsi_len" min="1" step="1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_rsi_ovb">RSI Overbought</label>
+                            <input type="number" id="param_rsi_ovb" name="rsi_ovb" min="0" max="100" step="1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_rsi_ovs">RSI Oversold</label>
+                            <input type="number" id="param_rsi_ovs" name="rsi_ovs" min="0" max="100" step="1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_bb_len">BB Length</label>
+                            <input type="number" id="param_bb_len" name="bb_len" min="1" step="1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_bb_mult">BB Multiplier</label>
+                            <input type="number" id="param_bb_mult" name="bb_mult" min="0" step="0.1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_ema_fast_len">EMA Fast Length</label>
+                            <input type="number" id="param_ema_fast_len" name="ema_fast_len" min="1" step="1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_ema_slow_len">EMA Slow Length</label>
+                            <input type="number" id="param_ema_slow_len" name="ema_slow_len" min="1" step="1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_atr_len">ATR Length</label>
+                            <input type="number" id="param_atr_len" name="atr_len" min="1" step="1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_adx_len">ADX Length</label>
+                            <input type="number" id="param_adx_len" name="adx_len" min="1" step="1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_vol_ma_len">Volume MA Length</label>
+                            <input type="number" id="param_vol_ma_len" name="vol_ma_len" min="1" step="1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_vol_mult">Volume Multiplier</label>
+                            <input type="number" id="param_vol_mult" name="vol_mult" min="0" step="0.1">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Position & Risk Management -->
+                <div class="modal-section">
+                    <h4>Position & Risk Management</h4>
+                    <div class="param-grid">
+                        <div class="param-group">
+                            <label for="param_base_size">Base Size</label>
+                            <input type="number" id="param_base_size" name="base_size" min="0" max="1" step="0.01">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_base_position_pct">Base Position %</label>
+                            <input type="number" id="param_base_position_pct" name="base_position_pct" min="0" max="100" step="0.1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_pyramiding">Pyramiding</label>
+                            <input type="number" id="param_pyramiding" name="pyramiding" min="1" step="1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_martingale_mult">Martingale Multiplier</label>
+                            <input type="number" id="param_martingale_mult" name="martingale_mult" min="1" step="0.1">
+                        </div>
+                        <div class="param-group">
+                            <label>
+                                <input type="checkbox" id="param_allow_long" name="allow_long">
+                                Allow Long
+                            </label>
+                        </div>
+                        <div class="param-group">
+                            <label>
+                                <input type="checkbox" id="param_allow_short" name="allow_short">
+                                Allow Short
+                            </label>
+                        </div>
+                        <div class="param-group">
+                            <label>
+                                <input type="checkbox" id="param_use_martingale" name="use_martingale">
+                                Use Martingale
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TP/SL Settings -->
+                <div class="modal-section">
+                    <h4>TP/SL Settings</h4>
+                    <div class="param-grid">
+                        <div class="param-group">
+                            <label>
+                                <input type="checkbox" id="param_use_tp_sl" name="use_tp_sl">
+                                Use TP/SL
+                            </label>
+                        </div>
+                        <div class="param-group">
+                            <label for="param_tp_long_pct">TP Long %</label>
+                            <input type="number" id="param_tp_long_pct" name="tp_long_pct" min="0" step="0.1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_sl_long_pct">SL Long %</label>
+                            <input type="number" id="param_sl_long_pct" name="sl_long_pct" min="0" step="0.1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_tp_short_pct">TP Short %</label>
+                            <input type="number" id="param_tp_short_pct" name="tp_short_pct" min="0" step="0.1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_sl_short_pct">SL Short %</label>
+                            <input type="number" id="param_sl_short_pct" name="sl_short_pct" min="0" step="0.1">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Time Filter -->
+                <div class="modal-section">
+                    <h4>Time Filter</h4>
+                    <div class="param-grid">
+                        <div class="param-group">
+                            <label>
+                                <input type="checkbox" id="param_time_filter_enabled" name="time_filter_enabled">
+                                Enable Time Filter
+                            </label>
+                        </div>
+                        <div class="param-group">
+                            <label for="param_time_filter_start_hour">Start Hour (UTC)</label>
+                            <input type="number" id="param_time_filter_start_hour" name="time_filter_start_hour" min="0" max="23" step="1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_time_filter_end_hour">End Hour (UTC)</label>
+                            <input type="number" id="param_time_filter_end_hour" name="time_filter_end_hour" min="0" max="23" step="1">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LLM Parameters -->
+                <div class="modal-section">
+                    <h4>LLM Parameters</h4>
+                    <div class="param-grid">
+                        <div class="param-group">
+                            <label for="param_k_max">K Max</label>
+                            <input type="number" id="param_k_max" name="k_max" min="0" step="0.1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_llm_horizon_hours">Horizon Hours</label>
+                            <input type="number" id="param_llm_horizon_hours" name="llm_horizon_hours" min="1" step="1">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_llm_min_prob_edge">Min Prob Edge</label>
+                            <input type="number" id="param_llm_min_prob_edge" name="llm_min_prob_edge" min="0" max="1" step="0.01">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_llm_min_trend_strength">Min Trend Strength</label>
+                            <input type="number" id="param_llm_min_trend_strength" name="llm_min_trend_strength" min="0" max="1" step="0.01">
+                        </div>
+                        <div class="param-group">
+                            <label for="param_llm_refresh_interval_bars">Refresh Interval (bars)</label>
+                            <input type="number" id="param_llm_refresh_interval_bars" name="llm_refresh_interval_bars" min="1" step="1">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trading Rules -->
+                <div class="modal-section">
+                    <h4>Trading Rules (JSON Format)</h4>
+                    <div class="param-group">
+                        <label for="param_rules">Rules JSON</label>
+                        <textarea id="param_rules" name="rules" placeholder='{"long_entry": [], "short_entry": [], "long_exit": [], "short_exit": []}'></textarea>
+                        <small style="color: #6b7280; font-size: 0.75rem; margin-top: 0.25rem;">Enter valid JSON format for trading rules</small>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <div class="modal-status" id="modal-status"></div>
+            <div class="modal-buttons">
+                <button type="button" class="btn btn-primary" id="recalculate-btn">
+                    Recalculate
+                </button>
+                <button type="button" class="btn btn-success" id="save-params-btn">
+                    Save
+                </button>
+                <button type="button" class="btn btn-secondary" id="modal-cancel-btn">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- Lightweight Charts Library -->
@@ -925,6 +1362,320 @@
         chartInstance.timeScale().setVisibleRange({
             from: from,
             to: now
+        });
+    }
+
+    // ============================================================================
+    // Modal & Parameters Management
+    // ============================================================================
+
+    let currentParams = null;
+    const modal = document.getElementById('params-modal');
+    const editParamsBtn = document.getElementById('edit-params-btn');
+    const modalCloseBtn = document.getElementById('modal-close-btn');
+    const modalCancelBtn = document.getElementById('modal-cancel-btn');
+    const recalculateBtn = document.getElementById('recalculate-btn');
+    const saveParamsBtn = document.getElementById('save-params-btn');
+    const modalStatus = document.getElementById('modal-status');
+
+    // Get CSRF token from cookie
+    function getCsrfToken() {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; csrf_token=`);
+        if (parts.length === 2) return parts.pop().split(';').shift();
+        return '';
+    }
+
+    // Open modal
+    editParamsBtn.addEventListener('click', async () => {
+        try {
+            // Load parameters from API
+            setModalStatus('Loading parameters...', 'loading');
+            const response = await fetch('/ui/strategies/{{ name }}/params');
+            if (!response.ok) {
+                throw new Error(`Failed to load parameters: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error('Failed to load parameters');
+            }
+
+            currentParams = data.params;
+
+            // Populate form
+            populateForm(currentParams);
+
+            // Show modal
+            modal.classList.add('active');
+            setModalStatus('', '');
+        } catch (error) {
+            console.error('Failed to load parameters:', error);
+            alert('Failed to load parameters: ' + error.message);
+        }
+    });
+
+    // Close modal
+    function closeModal() {
+        modal.classList.remove('active');
+        setModalStatus('', '');
+    }
+
+    modalCloseBtn.addEventListener('click', closeModal);
+    modalCancelBtn.addEventListener('click', closeModal);
+
+    // Close modal when clicking outside
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            closeModal();
+        }
+    });
+
+    // Populate form with parameters
+    function populateForm(params) {
+        // Strategy Type & Mode
+        document.getElementById('param_strategy_type').value = params.strategy_type || 'indicator';
+        document.getElementById('param_mode').value = params.mode || 'quant_only';
+        document.getElementById('param_symbol').value = params.symbol || 'BTCUSDT';
+
+        // Indicator Parameters
+        document.getElementById('param_rsi_len').value = params.rsi_len || 14;
+        document.getElementById('param_rsi_ovb').value = params.rsi_ovb || 70;
+        document.getElementById('param_rsi_ovs').value = params.rsi_ovs || 30;
+        document.getElementById('param_bb_len').value = params.bb_len || 20;
+        document.getElementById('param_bb_mult').value = params.bb_mult || 2.0;
+        document.getElementById('param_ema_fast_len').value = params.ema_fast_len || 12;
+        document.getElementById('param_ema_slow_len').value = params.ema_slow_len || 26;
+        document.getElementById('param_atr_len').value = params.atr_len || 14;
+        document.getElementById('param_adx_len').value = params.adx_len || 14;
+        document.getElementById('param_vol_ma_len').value = params.vol_ma_len || 21;
+        document.getElementById('param_vol_mult').value = params.vol_mult || 0.5;
+
+        // Position & Risk Management
+        document.getElementById('param_base_size').value = params.base_size || 0.1;
+        document.getElementById('param_base_position_pct').value = params.base_position_pct || 10.0;
+        document.getElementById('param_pyramiding').value = params.pyramiding || 1;
+        document.getElementById('param_martingale_mult').value = params.martingale_mult || 1.5;
+        document.getElementById('param_allow_long').checked = params.allow_long !== false;
+        document.getElementById('param_allow_short').checked = params.allow_short !== false;
+        document.getElementById('param_use_martingale').checked = params.use_martingale === true;
+
+        // TP/SL
+        document.getElementById('param_use_tp_sl').checked = params.use_tp_sl === true;
+        document.getElementById('param_tp_long_pct').value = params.tp_long_pct || 2.0;
+        document.getElementById('param_sl_long_pct').value = params.sl_long_pct || 2.0;
+        document.getElementById('param_tp_short_pct').value = params.tp_short_pct || 2.0;
+        document.getElementById('param_sl_short_pct').value = params.sl_short_pct || 2.0;
+
+        // Time Filter
+        document.getElementById('param_time_filter_enabled').checked = params.time_filter_enabled === true;
+        document.getElementById('param_time_filter_start_hour').value = params.time_filter_start_hour || 0;
+        document.getElementById('param_time_filter_end_hour').value = params.time_filter_end_hour || 23;
+
+        // LLM Parameters
+        document.getElementById('param_k_max').value = params.k_max || 2.0;
+        document.getElementById('param_llm_horizon_hours').value = params.llm_horizon_hours || 24;
+        document.getElementById('param_llm_min_prob_edge').value = params.llm_min_prob_edge || 0.55;
+        document.getElementById('param_llm_min_trend_strength').value = params.llm_min_trend_strength || 0.6;
+        document.getElementById('param_llm_refresh_interval_bars').value = params.llm_refresh_interval_bars || 60;
+
+        // Trading Rules
+        document.getElementById('param_rules').value = JSON.stringify(params.rules || {}, null, 2);
+    }
+
+    // Collect form parameters
+    function collectFormParams() {
+        const form = document.getElementById('params-form');
+        const formData = new FormData(form);
+
+        const params = {};
+
+        // Get all form fields
+        for (const [key, value] of formData.entries()) {
+            const element = form.elements[key];
+
+            if (element.type === 'checkbox') {
+                params[key] = element.checked;
+            } else if (element.type === 'number') {
+                params[key] = parseFloat(value) || 0;
+            } else {
+                params[key] = value;
+            }
+        }
+
+        // Parse rules JSON
+        try {
+            const rulesText = document.getElementById('param_rules').value.trim();
+            if (rulesText) {
+                params.rules = JSON.parse(rulesText);
+            } else {
+                params.rules = currentParams.rules || {};
+            }
+        } catch (e) {
+            throw new Error('Invalid JSON in trading rules: ' + e.message);
+        }
+
+        return params;
+    }
+
+    // Set modal status message
+    function setModalStatus(message, type = '') {
+        modalStatus.textContent = message;
+        modalStatus.className = 'modal-status';
+        if (type) {
+            modalStatus.classList.add(type);
+        }
+    }
+
+    // Recalculate backtest with new parameters
+    recalculateBtn.addEventListener('click', async () => {
+        try {
+            // Collect parameters
+            const params = collectFormParams();
+
+            // Disable buttons
+            recalculateBtn.disabled = true;
+            saveParamsBtn.disabled = true;
+            setModalStatus('Recalculating backtest...', 'loading');
+
+            // Send recalculate request
+            const response = await fetch('/ui/strategies/{{ name }}/recalculate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    csrf_token: getCsrfToken(),
+                    params: params
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || `Recalculate failed: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            if (!data.success) {
+                throw new Error('Recalculate failed');
+            }
+
+            // Update summary on page
+            updateSummary(data.summary);
+
+            // Reload chart data
+            await loadChartData();
+
+            setModalStatus('Backtest recalculated successfully!', 'success');
+
+            // Store updated params
+            currentParams = params;
+
+        } catch (error) {
+            console.error('Recalculate failed:', error);
+            setModalStatus('Error: ' + error.message, 'error');
+        } finally {
+            // Re-enable buttons
+            recalculateBtn.disabled = false;
+            saveParamsBtn.disabled = false;
+        }
+    });
+
+    // Save parameters
+    saveParamsBtn.addEventListener('click', async () => {
+        try {
+            // Collect parameters
+            const params = collectFormParams();
+
+            // Disable buttons
+            saveParamsBtn.disabled = true;
+            recalculateBtn.disabled = true;
+            setModalStatus('Saving parameters...', 'loading');
+
+            // Send save request
+            const response = await fetch('/ui/strategies/{{ name }}/save-params', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    csrf_token: getCsrfToken(),
+                    params: params
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || `Save failed: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            if (!data.success) {
+                throw new Error('Save failed');
+            }
+
+            setModalStatus('Parameters saved successfully!', 'success');
+
+            // Close modal after a short delay
+            setTimeout(() => {
+                closeModal();
+            }, 1500);
+
+        } catch (error) {
+            console.error('Save failed:', error);
+            setModalStatus('Error: ' + error.message, 'error');
+        } finally {
+            // Re-enable buttons
+            saveParamsBtn.disabled = false;
+            recalculateBtn.disabled = false;
+        }
+    });
+
+    // Update summary on page
+    function updateSummary(summary) {
+        // Update metrics in results-summary section
+        const metricsGrid = document.querySelector('.results-summary .metrics-grid');
+
+        // Find and update each metric
+        const metricElements = {
+            'Symbol': summary.symbol,
+            'Bars': summary.bars,
+            'Trades': summary.trades,
+            'P&L': `${summary.pnl_pct >= 0 ? '+' : ''}${summary.pnl_pct.toFixed(2)}%`,
+            'P&L (Absolute)': `$${summary.pnl_abs.toFixed(2)}`,
+            'Max Drawdown': `${summary.max_drawdown.toFixed(2)}%`,
+            'Win Rate': `${summary.win_rate.toFixed(1)}%`,
+            'Avg Trade P&L': `$${summary.avg_trade_pnl.toFixed(2)}`,
+            'Final Equity': `$${summary.final_equity.toFixed(2)}`
+        };
+
+        // Update each metric
+        const metrics = metricsGrid.querySelectorAll('.metric');
+        metrics.forEach(metric => {
+            const label = metric.querySelector('.metric-label').textContent;
+            const valueEl = metric.querySelector('.metric-value');
+
+            if (metricElements[label] !== undefined) {
+                valueEl.textContent = metricElements[label];
+
+                // Update color classes
+                valueEl.classList.remove('positive', 'negative');
+                if (label === 'P&L' || label === 'P&L (Absolute)') {
+                    if (summary.pnl_pct >= 0 || summary.pnl_abs >= 0) {
+                        valueEl.classList.add('positive');
+                    } else {
+                        valueEl.classList.add('negative');
+                    }
+                } else if (label === 'Avg Trade P&L') {
+                    if (summary.avg_trade_pnl >= 0) {
+                        valueEl.classList.add('positive');
+                    } else {
+                        valueEl.classList.add('negative');
+                    }
+                }
+            }
         });
     }
 </script>
