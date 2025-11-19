@@ -15,6 +15,7 @@ jinja2==3.1.4
 python-multipart==0.0.9
 slowapi==0.1.9  # Rate limiting for API endpoints
 passlib[bcrypt]==1.7.4  # Password hashing for authentication
+bcrypt>=4.0.1  # Direct dependency for auth fallback logic
 itsdangerous==2.1.2  # Session security
 
 # Testing (required for running tests)
