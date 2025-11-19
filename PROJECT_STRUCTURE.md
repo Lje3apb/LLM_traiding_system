@@ -8,6 +8,131 @@
 
 ## Недавние изменения
 
+### Ноябрь 2025 - Версия 0.3.3 (WEBSOCKET REAL-TIME UPDATES & CSRF FIX)
+
+**Главная новинка: Real-time Price Chart с WebSocket broadcasting и глобальное исправление CSRF**
+
+1. **WebSocket Real-time Event Broadcasting** (`llm_trading_system/engine/live_service.py`, `llm_trading_system/api/ws_routes.py`):
+   - ✅ **Система подписчиков для WebSocket**: Добавлена `_subscribers` list с хранением `(websocket, event_loop)` tuples
+   - ✅ **Thread-safe broadcasting**: Реализован `_schedule_broadcast()` с использованием `asyncio.run_coroutine_threadsafe()`
+   - ✅ **Real-time bar events**: `_on_new_bar()` теперь broadcast'ит bar события всем подписчикам
+   - ✅ **Real-time trade events**: `_on_trade()` теперь broadcast'ит trade события
+   - ✅ **WebSocket subscription**: В `ws_routes.py` добавлена подписка при подключении с передачей event loop
+   - ✅ **Automatic cleanup**: Отписка при отключении WebSocket
+   - ✅ **Решена проблема**: Бары теперь отображаются на Price Chart в реальном времени без необходимости нажатия "Stop Trading"
+
+2. **Hybrid/LLM_only Strategy LLM Client Creation** (`llm_trading_system/engine/live_service.py`):
+   - ✅ Автоматическое создание LLM client для стратегий с `mode="hybrid"` или `mode="llm_only"`
+   - ✅ Проверка `strategy_config.get("mode")` перед созданием стратегии
+   - ✅ Вызов `create_ollama_client()` если требуется LLM client
+   - ✅ Повторное использование client для `LLMRegimeWrappedStrategy` wrapper
+   - ✅ Детальное error handling с информативными сообщениями
+
+3. **CSRF Token Global Synchronization** (`llm_trading_system/api/templates/base.html`):
+   - ✅ **Root cause analysis**: CSRF middleware генерирует новый token на каждый GET /ui/* запрос
+   - ✅ **Проблема**: Hidden field в форме содержит старый template token, cookie обновляется → mismatch
+   - ✅ **Решение**: Глобальный JavaScript в `base.html` обновляет все hidden csrf_token fields из cookie перед submit
+   - ✅ **Coverage**: Исправлены все POST формы (backtest, settings, strategy save/delete)
+   - ✅ **Функция**: `getCookie()` для извлечения token из cookie
+   - ✅ **Event listener**: `submit` event для всех `form[method="POST"]`
+
+4. **JSON API CSRF Compatibility** (`llm_trading_system/api/api_routes.py`):
+   - ✅ Удаление `csrf_token` из request body для `/backtest` endpoint
+   - ✅ JSON API не требует CSRF защиты (использует другие механизмы auth)
+   - ✅ Совместимость с разными типами клиентов
+
+5. **Enhanced CSRF Error Logging** (`llm_trading_system/api/ui_routes.py`):
+   - ✅ Детальное логирование в `_verify_csrf_token()`:
+     * Логирование когда cookie_token отсутствует
+     * Логирование когда form_token отсутствует
+     * Логирование при token mismatch с первыми 8 символами обоих токенов
+   - ✅ Улучшенные user error messages с actionable steps
+   - ✅ Упрощенная диагностика CSRF проблем
+
+6. **Bug Fixes**:
+   - ✅ Удален дубликат `formData.append('csrf_token')` в `backtest_form.html`
+   - ✅ Исправлена проблема с отображением баров только после "Stop Trading"
+   - ✅ Исправлена ошибка "llm_client is required for mode hybrid"
+
+**Технические детали**:
+
+**LiveSession subscriber storage** (`live_service.py:177-180`):
+```python
+# WebSocket subscribers for real-time events
+# Store tuple of (websocket, event_loop) to enable thread-safe async calls
+self._subscribers: list[tuple[Any, Any]] = []  # List of (WebSocket, event_loop)
+self._subscribers_lock = threading.Lock()
+```
+
+**Thread-safe broadcasting** (`live_service.py:603-636`):
+```python
+def _schedule_broadcast(self, event_type: str, payload: dict[str, Any]) -> None:
+    """Schedule a broadcast event to be sent from sync context (background thread)."""
+    import asyncio
+
+    message = {"type": event_type, "payload": payload}
+
+    with self._subscribers_lock:
+        subscribers = self._subscribers.copy()
+
+    # Send to all subscribers using their event loops
+    for websocket, event_loop in subscribers:
+        try:
+            asyncio.run_coroutine_threadsafe(
+                self._send_to_websocket(websocket, message),
+                event_loop
+            )
+        except Exception as e:
+            logger.warning(f"Failed to schedule broadcast {event_type} to WebSocket: {e}")
+```
+
+**WebSocket subscription** (`ws_routes.py`):
+```python
+# Subscribe to real-time events from the session
+# Pass the current event loop to enable thread-safe async calls from background thread
+import asyncio
+
+session = manager.get_session(session_id)
+if session:
+    event_loop = asyncio.get_running_loop()
+    session.subscribe(websocket, event_loop)
+```
+
+**Global CSRF sync** (`base.html:40-64`):
+```javascript
+// Global CSRF token updater for all forms
+// Updates hidden csrf_token fields from cookie before form submission
+document.addEventListener('DOMContentLoaded', function() {
+    const forms = document.querySelectorAll('form[method="POST"]');
+    forms.forEach(function(form) {
+        form.addEventListener('submit', function(e) {
+            const csrfInput = form.querySelector('input[name="csrf_token"]');
+            const currentToken = getCookie('csrf_token');
+            if (csrfInput && currentToken) {
+                csrfInput.value = currentToken;
+            }
+        });
+    });
+});
+```
+
+**Workflow улучшения**:
+- Real-time Price Chart updates без задержек
+- Бары отображаются немедленно при получении через WebSocket
+- Hybrid стратегии теперь работают корректно с LLM client
+- CSRF формы работают даже после длительного открытия страницы
+- Улучшенная диагностика CSRF проблем
+
+**Files Modified**:
+- `llm_trading_system/engine/live_service.py`: WebSocket broadcasting система, LLM client creation
+- `llm_trading_system/api/ws_routes.py`: WebSocket subscription с event loop
+- `llm_trading_system/api/api_routes.py`: Удаление csrf_token из JSON API
+- `llm_trading_system/api/ui_routes.py`: Улучшенное CSRF логирование
+- `llm_trading_system/api/templates/base.html`: Глобальный CSRF sync скрипт
+- `llm_trading_system/api/templates/backtest_form.html`: Удален дубликат csrf_token
+
+---
+
 ### Декабрь 2025 - Версия 0.3.2 (SECURITY ENHANCEMENTS)
 
 **Главная новинка: Комплексная защита от CSRF и DoS атак**
@@ -696,14 +821,22 @@
   - `start_session()`: Запуск торговли
   - `stop_session()`: Остановка торговли
   - `get_status()`: Получение статуса сессии
+  - `get_session()`: Получение сессии по ID 🆕
   - `list_status()`: Список всех сессий
   - `get_trades()`: История сделок
   - `get_recent_bars()`: Последние бары
   - `get_account_snapshot()`: Snapshot баланса и позиций
-- **WebSocket Support**:
+- **WebSocket Support** 🔄:
   - Real-time updates: `state_update`, `trade`, `bar`
-  - Автоматическое broadcast новых событий
-  - Connection management
+  - **Thread-safe broadcasting**: `_schedule_broadcast()` с `asyncio.run_coroutine_threadsafe()` 🆕
+  - **Subscriber management**: `subscribe()`, `unsubscribe()`, `_subscribers` list 🆕
+  - **Event loop storage**: Хранение `(websocket, event_loop)` tuples для thread-safe async calls 🆕
+  - Connection management с автоматической очисткой
+- **LLM Client Creation** 🆕:
+  - Автоматическое создание LLM client для `mode="hybrid"` и `mode="llm_only"`
+  - Проверка `strategy_config.get("mode")` при создании сессии
+  - Повторное использование client для `LLMRegimeWrappedStrategy` wrapper
+  - Детальное error handling если Ollama недоступен
 - **State Caching**: Кэширование last_state для быстрого доступа
 
 ---
@@ -715,13 +848,13 @@
 - **Технологии**: FastAPI, Jinja2, uvicorn
 - **API Endpoints (Backtest)**:
   - `GET /health`: Проверка здоровья сервера
-  - `POST /backtest`: Запуск бэктеста (JSON API)
+  - `POST /backtest`: Запуск бэктеста (JSON API, csrf_token ignored) 🔄
   - `GET /ui/`: Главная страница Web UI (с strategy type detection)
   - `GET /ui/strategies/new`: Форма создания стратегии
   - `POST /ui/strategies/{name}/save`: Сохранение стратегии
   - `GET /ui/strategies/{name}/edit`: Редактирование стратегии
   - `GET /ui/strategies/{name}/backtest`: Форма бэктеста
-  - `POST /ui/strategies/{name}/backtest`: Запуск бэктеста через UI
+  - `POST /ui/strategies/{name}/backtest`: Запуск бэктеста через UI (с CSRF validation) 🔄
   - `POST /ui/strategies/{name}/download_data`: Загрузка данных (streaming)
   - `GET /ui/data/files`: Список доступных CSV файлов
 - **API Endpoints (Live Trading)** 🆕:
@@ -732,9 +865,9 @@
   - `GET /api/live/sessions/{id}`: Получение статуса сессии
   - `GET /api/live/sessions`: Список всех сессий
   - `GET /api/live/sessions/{id}/trades`: История сделок
-  - `GET /api/live/sessions/{id}/bars`: Последние бары
+  - `GET /api/live/sessions/{id}/bars`: Последние бары 🔄
   - `GET /api/live/sessions/{id}/account`: Account snapshot
-  - `WS /ws/live/{id}`: WebSocket для real-time updates
+  - `WS /ws/live/{id}`: WebSocket для real-time updates (с subscription) 🔄
 - **Функции**:
   - CRUD операции для стратегий
   - Strategy type detection (Indicator/LLM Only/Hybrid)
@@ -743,9 +876,16 @@
   - Dropdown-селектор CSV файлов
   - Отображение результатов бэктестов с Next Actions panel
   - Live trading session management через REST + WebSocket
+  - **CSRF Protection**: Double Submit Cookie pattern для UI форм 🔄
+  - **Rate Limiting**: IP-based DoS protection
+  - **Enhanced Logging**: Детальное CSRF error logging 🆕
 
 #### **templates/**
-- **base.html**: Базовый HTML шаблон с навигацией и стилями
+- **base.html** 🔄: Базовый HTML шаблон с навигацией и стилями
+  - **Global CSRF sync script** 🆕: Автоматическое обновление csrf_token в всех POST формах перед submit
+  - **getCookie() function**: Утилита для извлечения cookie значений
+  - **DOMContentLoaded listener**: Добавляет submit event listeners ко всем формам
+  - **Фикс**: Решает проблему token mismatch при долгом открытии страницы
 - **index.html** 🔄: Расширенная таблица стратегий
   - Колонки: Name, Type (Indicator/LLM Only/Hybrid), Symbol, Actions
   - Type badges с цветовой кодировкой
@@ -757,11 +897,12 @@
   - Управление рисками (pyramiding, martingale, TP/SL)
   - 🆕 **Live Trading Hints**: Подсказки о initial_deposit (Paper vs Real mode)
   - 🆕 **LLM Regime Hints**: Объяснение position sizing с k multipliers
-- **backtest_form.html**: Форма запуска бэктеста
+- **backtest_form.html** 🔄: Форма запуска бэктеста
   - Секция загрузки данных с Binance
   - Real-time прогресс загрузки
   - Dropdown выбор CSV файла
   - Параметры бэктеста (equity, fees, slippage)
+  - **Фикс**: Удален дубликат `formData.append('csrf_token')` 🆕
 - **backtest_result.html** 🔄: Отображение результатов с улучшениями
   - Метрики производительности
   - Кривая капитала с Lightweight Charts
@@ -1130,10 +1271,13 @@ docker-compose --profile market up market-snapshot
    - Take Profit / Stop Loss
    - Временные фильтры
 11. **Real-time Monitoring** 🆕:
-   - WebSocket updates для bar/trade/state
+   - **WebSocket updates** для bar/trade/state с thread-safe broadcasting 🔄
+   - **Thread-safe async communication**: Background thread → Event loop через `asyncio.run_coroutine_threadsafe()` 🆕
+   - **Subscriber management**: Автоматическая подписка/отписка WebSocket connections 🆕
    - Session summary с live metrics (return %, win rate)
    - Running duration timer
    - Activity log console с color-coded events
+   - **Price Chart real-time updates**: Бары отображаются немедленно без задержек 🆕
 12. **Бэктестинг**: Полный движок бэктестинга с реалистичным исполнением
 13. **Готовность к Docker**: Полная контейнеризация
 14. **Комплексное тестирование**: Юнит и интеграционные тесты (включая UI tests)
@@ -1144,8 +1288,11 @@ docker-compose --profile market up market-snapshot
    - EXCHANGE_LIVE_ENABLED flag для защиты от случайной real trading
    - Multiple confirmation dialogs для real trading operations
    - Paper trading для безопасного тестирования
-19. **Security Features** 🆕 (Версия 0.3.2):
-   - **CSRF Protection**: Double Submit Cookie pattern для всех UI форм
+19. **Security Features** 🆕 (Версия 0.3.2+):
+   - **CSRF Protection**: Double Submit Cookie pattern для всех UI форм 🔄
+   - **Global CSRF Token Sync** 🆕: JavaScript автоматически синхронизирует токены перед submit
+   - **Enhanced CSRF Logging** 🆕: Детальное логирование с первыми 8 символами токенов для debugging
+   - **JSON API CSRF Compatibility** 🆕: JSON endpoints игнорируют csrf_token в request body
    - **Rate Limiting**: IP-based DoS protection с 11 уровнями лимитов
    - **XSS Prevention**: Jinja2 auto-escaping + safe JavaScript practices
    - **Secure Cookies**: SameSite=Strict, HTTPS-only в production
