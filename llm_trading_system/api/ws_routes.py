@@ -133,9 +133,13 @@ async def live_session_websocket(websocket: WebSocket, session_id: str, token: s
     register_connection(user_id, websocket)
 
     # Subscribe to real-time events from the session
+    # Pass the current event loop to enable thread-safe async calls from background thread
+    import asyncio
+
     session = manager.get_session(session_id)
     if session:
-        session.subscribe(websocket)
+        event_loop = asyncio.get_running_loop()
+        session.subscribe(websocket, event_loop)
         logger.info(f"WebSocket subscribed to session {session_id} for real-time events")
 
     try:
