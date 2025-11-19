@@ -164,7 +164,7 @@ class DataManager:
         Returns:
             Number of rows (excluding header)
         """
-        with open(filepath, 'r') as f:
+        with open(filepath, 'r', encoding='utf-8') as f:
             return sum(1 for _ in f) - 1  # -1 for header
 
     def merge_and_update(self, existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFrame:
