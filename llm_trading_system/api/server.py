@@ -16,7 +16,14 @@ from fastapi.templating import Jinja2Templates
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from starlette.middleware.sessions import SessionMiddleware
 
+from llm_trading_system.api.auth import (
+    authenticate_user,
+    get_current_user,
+    optional_auth,
+    require_auth,
+)
 from llm_trading_system.data.data_manager import get_data_manager
 from llm_trading_system.engine.backtest_service import run_backtest_from_config_dict
 from llm_trading_system.engine.live_service import (
@@ -35,6 +42,53 @@ app = FastAPI(
     version="0.1.0",
     description="HTTP JSON API for backtesting and strategy management",
 )
+
+# ============================================================================
+# Session Management (Authentication)
+# ============================================================================
+
+# Add SessionMiddleware for session-based authentication
+# IMPORTANT: In production, use a secure random secret key from environment variable
+# Generate a new secret with: python -c "import secrets; print(secrets.token_hex(32))"
+SESSION_SECRET_KEY = os.getenv(
+    "SESSION_SECRET_KEY",
+    "default-dev-secret-key-change-in-production-12345678901234567890"
+)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET_KEY,
+    session_cookie="trading_session",
+    max_age=86400,  # 24 hours in seconds
+    same_site="strict",
+    https_only=os.getenv("ENV", "").lower() == "production",
+)
+
+# ============================================================================
+# Custom Exception Handlers
+# ============================================================================
+
+
+@app.exception_handler(401)
+async def unauthorized_handler(request: Request, exc: HTTPException):
+    """Handle 401 Unauthorized errors.
+
+    For UI endpoints: Redirect to login page
+    For API endpoints: Return JSON error
+    """
+    path = request.url.path
+
+    if path.startswith("/ui") and not path.startswith("/ui/login"):
+        # UI endpoint - redirect to login with next parameter
+        from urllib.parse import quote
+        login_url = f"/ui/login?next={quote(path)}"
+        return RedirectResponse(url=login_url, status_code=303)
+    else:
+        # API endpoint - return JSON error
+        return JSONResponse(
+            status_code=401,
+            content={"detail": str(exc.detail)}
+        )
+
 
 # ============================================================================
 # Rate Limiting (DoS Protection)
@@ -418,7 +472,7 @@ async def run_backtest(request_obj: Request, request: dict[str, Any]) -> dict[st
 
 @app.post("/api/live/sessions")
 @limiter.limit("20/minute")  # Live trading session creation
-async def create_live_session(request_obj: Request, request: dict[str, Any]) -> dict[str, Any]:
+async def create_live_session(request_obj: Request, request: dict[str, Any], user=Depends(require_auth)) -> dict[str, Any]:
     """Create a new live/paper trading session.
 
     Request body should contain:
@@ -486,7 +540,7 @@ async def create_live_session(request_obj: Request, request: dict[str, Any]) -> 
 
 @app.post("/api/live/sessions/{session_id}/start")
 @limiter.limit("50/minute")  # Session control
-async def start_live_session(request: Request, session_id: str) -> dict[str, Any]:
+async def start_live_session(request: Request, session_id: str, user=Depends(require_auth)) -> dict[str, Any]:
     """Start a live/paper trading session.
 
     Args:
@@ -514,7 +568,7 @@ async def start_live_session(request: Request, session_id: str) -> dict[str, Any
 
 @app.post("/api/live/sessions/{session_id}/stop")
 @limiter.limit("50/minute")  # Session control
-async def stop_live_session(request: Request, session_id: str) -> dict[str, Any]:
+async def stop_live_session(request: Request, session_id: str, user=Depends(require_auth)) -> dict[str, Any]:
     """Stop a live/paper trading session.
 
     Args:
@@ -795,9 +849,112 @@ async def root(request: Request) -> RedirectResponse:
     return RedirectResponse(url="/ui/")
 
 
+# ============================================================================
+# Authentication Routes
+# ============================================================================
+
+
+@app.get("/ui/login", response_class=HTMLResponse)
+@limiter.limit("100/minute")  # UI page views
+async def login_page(
+    request: Request,
+    next: str = "/ui/",
+    error: str = ""
+) -> HTMLResponse:
+    """Web UI: Login page.
+
+    Args:
+        request: FastAPI request object
+        next: URL to redirect to after successful login
+        error: Error message to display (if any)
+
+    Returns:
+        HTML response with login form
+    """
+    # If already logged in, redirect to next page
+    current_user = get_current_user(request)
+    if current_user:
+        return RedirectResponse(url=next, status_code=303)
+
+    # Get CSRF token from cookie
+    csrf_token = request.cookies.get("csrf_token", "")
+
+    return templates.TemplateResponse(
+        "login.html",
+        {
+            "request": request,
+            "next": next,
+            "error": error,
+            "csrf_token": csrf_token,
+        },
+    )
+
+
+@app.post("/ui/login")
+@limiter.limit("20/minute")  # Login attempts - moderate limit to prevent brute force
+async def login(
+    request: Request,
+    csrf_token: str = Form(...),
+    username: str = Form(...),
+    password: str = Form(...),
+    next: str = Form("/ui/"),
+) -> RedirectResponse:
+    """Web UI: Process login form.
+
+    Args:
+        request: FastAPI request object
+        csrf_token: CSRF token from form
+        username: Username from form
+        password: Password from form
+        next: URL to redirect to after successful login
+
+    Returns:
+        Redirect to next page on success, or back to login on failure
+    """
+    # CSRF validation
+    _verify_csrf_token(request, csrf_token)
+
+    # Authenticate user
+    user = authenticate_user(username, password)
+
+    if not user:
+        # Authentication failed - redirect back to login with error
+        return RedirectResponse(
+            url=f"/ui/login?next={next}&error=Invalid+username+or+password",
+            status_code=303
+        )
+
+    # Authentication successful - create session
+    request.session["user_id"] = user.user_id
+    request.session["username"] = user.username
+
+    # Redirect to next page
+    return RedirectResponse(url=next, status_code=303)
+
+
+@app.get("/ui/logout")
+@limiter.limit("100/minute")  # Logout - generous limit
+async def logout(request: Request) -> RedirectResponse:
+    """Web UI: Logout endpoint.
+
+    Clears session and redirects to login page.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        Redirect to login page
+    """
+    # Clear session
+    request.session.clear()
+
+    # Redirect to login page
+    return RedirectResponse(url="/ui/login", status_code=303)
+
+
 @app.get("/ui/", response_class=HTMLResponse)
 @limiter.limit("100/minute")  # UI page views
-async def ui_index(request: Request) -> HTMLResponse:
+async def ui_index(request: Request, user=Depends(require_auth)) -> HTMLResponse:
     """Web UI: List all strategy configurations.
 
     Args:
@@ -867,7 +1024,7 @@ async def ui_index(request: Request) -> HTMLResponse:
 
 @app.get("/ui/live", response_class=HTMLResponse)
 @limiter.limit("100/minute")  # UI page views
-async def ui_live_trading(request: Request) -> HTMLResponse:
+async def ui_live_trading(request: Request, user=Depends(require_auth)) -> HTMLResponse:
     """Web UI: Live trading page for paper and real trading.
 
     Args:
@@ -912,7 +1069,7 @@ async def ui_live_trading(request: Request) -> HTMLResponse:
 
 @app.get("/ui/strategies/new", response_class=HTMLResponse)
 @limiter.limit("100/minute")  # UI page views
-async def ui_new_strategy(request: Request) -> HTMLResponse:
+async def ui_new_strategy(request: Request, user=Depends(require_auth)) -> HTMLResponse:
     """Web UI: Show form to create a new strategy.
 
     Args:
@@ -937,7 +1094,7 @@ async def ui_new_strategy(request: Request) -> HTMLResponse:
 
 @app.get("/ui/strategies/{name}/edit", response_class=HTMLResponse)
 @limiter.limit("100/minute")  # UI page views
-async def ui_edit_strategy(request: Request, name: str) -> HTMLResponse:
+async def ui_edit_strategy(request: Request, name: str, user=Depends(require_auth)) -> HTMLResponse:
     """Web UI: Show form to edit an existing strategy.
 
     Args:
@@ -976,6 +1133,7 @@ async def ui_edit_strategy(request: Request, name: str) -> HTMLResponse:
 async def ui_save_strategy(
     request: Request,
     name: str,
+    user=Depends(require_auth),  # Authentication required
     csrf_token: str = Form(...),  # CSRF protection
     strategy_name: str = Form(..., alias="name"),
     strategy_type: str = Form(...),
@@ -1104,6 +1262,7 @@ async def ui_save_strategy(
 async def ui_delete_strategy(
     request: Request,
     name: str,
+    user=Depends(require_auth),  # Authentication required
     csrf_token: str = Form(...),  # CSRF protection
 ) -> RedirectResponse:
     """Web UI: Delete a strategy configuration.
@@ -1134,7 +1293,7 @@ async def ui_delete_strategy(
 
 @app.get("/ui/strategies/{name}/backtest", response_class=HTMLResponse)
 @limiter.limit("100/minute")  # UI page views
-async def ui_backtest_form(request: Request, name: str) -> HTMLResponse:
+async def ui_backtest_form(request: Request, name: str, user=Depends(require_auth)) -> HTMLResponse:
     """Web UI: Show backtest form for a strategy.
 
     Args:
@@ -1186,6 +1345,7 @@ async def ui_backtest_form(request: Request, name: str) -> HTMLResponse:
 async def ui_run_backtest(
     request: Request,
     name: str,
+    user=Depends(require_auth),  # Authentication required
     csrf_token: str = Form(...),  # CSRF protection
     data_path: str = Form(...),
     use_llm: bool = Form(False),
@@ -1415,6 +1575,7 @@ async def ui_get_backtest_chart_data(request: Request, name: str) -> JSONRespons
 async def ui_download_data(
     request: Request,
     name: str,
+    user=Depends(require_auth),  # Authentication required
     csrf_token: str = Form(...),  # CSRF protection
     symbol: str = Form(...),
     interval: str = Form(...),
@@ -1565,7 +1726,7 @@ async def ui_download_data(
 
 @app.get("/ui/settings", response_class=HTMLResponse)
 @limiter.limit("100/minute")  # UI page views
-async def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
+async def settings_page(request: Request, saved: bool = False, user=Depends(require_auth)) -> HTMLResponse:
     """Web UI: System settings page for AppConfig management.
 
     Args:
@@ -1610,6 +1771,7 @@ async def settings_page(request: Request, saved: bool = False) -> HTMLResponse:
 @limiter.limit("10/minute")  # Settings save - moderate limit
 async def save_settings(
     request: Request,
+    user=Depends(require_auth),  # Authentication required
     csrf_token: str = Form(...),  # CSRF protection
     # LLM settings
     llm_provider: str = Form(...),
