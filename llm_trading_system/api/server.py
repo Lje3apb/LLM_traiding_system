@@ -385,11 +385,17 @@ async def csrf_middleware(request: Request, call_next):
     - SameSite=Strict prevents CSRF from external sites
     - Secure=True in production (HTTPS only)
     - Token changes on each page load (stateless)
+
+    Note: /ui/login is excluded because it sets its own CSRF token
+    to ensure the form and cookie tokens match exactly.
     """
     response = await call_next(request)
 
     # Only set CSRF cookie for GET requests to UI pages
-    if request.method == "GET" and request.url.path.startswith("/ui"):
+    # Exclude /ui/login which handles CSRF token generation itself
+    if (request.method == "GET" and
+        request.url.path.startswith("/ui") and
+        request.url.path != "/ui/login"):
         csrf_token = _generate_csrf_token()
 
         # Determine if we're in production
