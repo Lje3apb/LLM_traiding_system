@@ -114,6 +114,20 @@
                 <input type="number" id="adx_len" name="adx_len" value="{{ config.get('adx_len', 14) }}" min="1" required>
             </div>
         </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="vol_ma_len">Volume MA Length</label>
+                <input type="number" id="vol_ma_len" name="vol_ma_len" value="{{ config.get('vol_ma_len', 21) }}" min="1" required>
+                <small class="help-text">Length of volume moving average</small>
+            </div>
+
+            <div class="form-group">
+                <label for="vol_mult">Volume Multiplier (vol_mult)</label>
+                <input type="number" id="vol_mult" name="vol_mult" value="{{ config.get('vol_mult', 0.5) }}" step="0.1" min="0" required>
+                <small class="help-text">Volume threshold = vol_ma * vol_mult</small>
+            </div>
+        </div>
     </div>
 
     <div class="form-section">
