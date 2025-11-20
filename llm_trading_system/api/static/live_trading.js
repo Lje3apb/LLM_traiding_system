@@ -895,14 +895,14 @@ function initializeChart() {
     let isSyncing = false;
 
     priceChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
-        // Validate timeRange has valid numeric from/to values
+        // Validate timeRange has valid numeric from/to values and proper range
         if (!isSyncing &&
             timeRange &&
             typeof timeRange.from === 'number' &&
             typeof timeRange.to === 'number' &&
             isFinite(timeRange.from) &&
-            isFinite(timeRange.to)) {
-            console.log('📊 Price chart time range changed, syncing to volume chart:', timeRange);
+            isFinite(timeRange.to) &&
+            timeRange.from < timeRange.to) {  // Ensure valid range (from must be less than to)
             isSyncing = true;
             try {
                 volumeChartInstance.timeScale().setVisibleRange(timeRange);
@@ -914,14 +914,14 @@ function initializeChart() {
     });
 
     volumeChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
-        // Validate timeRange has valid numeric from/to values
+        // Validate timeRange has valid numeric from/to values and proper range
         if (!isSyncing &&
             timeRange &&
             typeof timeRange.from === 'number' &&
             typeof timeRange.to === 'number' &&
             isFinite(timeRange.from) &&
-            isFinite(timeRange.to)) {
-            console.log('📈 Volume chart time range changed, syncing to price chart:', timeRange);
+            isFinite(timeRange.to) &&
+            timeRange.from < timeRange.to) {  // Ensure valid range (from must be less than to)
             isSyncing = true;
             try {
                 priceChartInstance.timeScale().setVisibleRange(timeRange);
@@ -931,8 +931,6 @@ function initializeChart() {
             isSyncing = false;
         }
     });
-
-    console.log('✓ Chart time scale synchronization initialized');
 
     // Auto-resize - remove old listener first to prevent memory leak
     if (chartResizeHandler) {
