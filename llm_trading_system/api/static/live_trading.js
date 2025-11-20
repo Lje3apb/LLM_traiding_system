@@ -584,15 +584,21 @@ function updateSessionDisplay(sessionData) {
 }
 
 function updateAccountMetrics(state) {
-    document.getElementById('account-equity').textContent = `$${state.equity.toFixed(2)}`;
-    document.getElementById('account-balance').textContent = `$${state.balance.toFixed(2)}`;
+    // Safely handle potentially undefined values
+    const equity = state.equity ?? 0;
+    const balance = state.balance ?? 0;
+    const realizedPnl = state.realized_pnl ?? 0;
+
+    document.getElementById('account-equity').textContent = `$${equity.toFixed(2)}`;
+    document.getElementById('account-balance').textContent = `$${balance.toFixed(2)}`;
 
     const realizedPnlElem = document.getElementById('account-realized-pnl');
-    realizedPnlElem.textContent = formatPnL(state.realized_pnl);
-    realizedPnlElem.className = state.realized_pnl >= 0 ? 'metric-value positive' : 'metric-value negative';
+    realizedPnlElem.textContent = formatPnL(realizedPnl);
+    realizedPnlElem.className = realizedPnl >= 0 ? 'metric-value positive' : 'metric-value negative';
 
     if (state.position && state.position.size !== 0) {
-        document.getElementById('account-position-size').textContent = state.position.size.toFixed(4);
+        const positionSize = state.position.size ?? 0;
+        document.getElementById('account-position-size').textContent = positionSize.toFixed(4);
         document.getElementById('account-entry-price').textContent =
             state.position.avg_price ? `$${state.position.avg_price.toFixed(2)}` : '-';
 
