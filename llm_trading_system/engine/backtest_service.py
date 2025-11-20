@@ -138,6 +138,7 @@ def run_backtest_from_config_dict(
         "avg_trade_pnl": avg_trade_pnl,
         "final_equity": result.final_equity,
         "initial_equity": initial_equity,
+        "trades_list": result.trades,  # Include full trades list for caching
     }
 
     # Optionally include equity curve

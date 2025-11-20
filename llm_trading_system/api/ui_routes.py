@@ -808,30 +808,11 @@ async def ui_get_backtest_chart_data(request: Request, name: str) -> JSONRespons
                 "volume": float(row.get("volume", 0)),
             })
 
-        # Extract trades from summary (if available)
+        # Extract trades from summary (cached trades list)
         trades_data = []
 
-        # Re-run backtest to get trades data
-        # (since summary might not include full trade details)
-        from llm_trading_system.engine.backtester import Backtester
-        from llm_trading_system.engine.data_feed import CSVDataFeed
-        from llm_trading_system.strategies import create_strategy_from_config
-
-        config = cached_data["config"]
-        symbol = config.get("symbol", "BTCUSDT")
-        strategy = create_strategy_from_config(config, llm_client=None)
-        data_feed = CSVDataFeed(path=Path(data_path), symbol=symbol)
-
-        backtester = Backtester(
-            strategy=strategy,
-            data_feed=data_feed,
-            initial_equity=summary.get("initial_equity", 10000.0),
-            fee_rate=0.001,
-            slippage_bps=1.0,
-            symbol=symbol,
-        )
-
-        result = backtester.run()
+        # Get cached trades from summary
+        cached_trades = summary.get("trades_list", [])
 
         # Detect bar interval from OHLCV data
         interval_seconds = 3600  # default 1 hour
@@ -839,7 +820,7 @@ async def ui_get_backtest_chart_data(request: Request, name: str) -> JSONRespons
             interval_seconds = ohlcv_data[1]["time"] - ohlcv_data[0]["time"]
 
         # Format trades for chart
-        for trade in result.trades:
+        for trade in cached_trades:
             # Parse timestamps
             entry_ts = trade.open_time
             exit_ts = trade.close_time
