@@ -149,8 +149,36 @@
 
     #chart-container {
         width: 100%;
-        height: 500px;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
         position: relative;
+    }
+
+    .chart-wrapper {
+        width: 100%;
+        position: relative;
+        background: #ffffff;
+        border-radius: 4px;
+    }
+
+    .chart-title {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: #374151;
+        padding: 0.5rem 0.75rem;
+        background: #f9fafb;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    #price-chart {
+        width: 100%;
+        height: 350px;
+    }
+
+    #volume-chart {
+        width: 100%;
+        height: 150px;
     }
 
     /* Trades Table */
@@ -398,8 +426,12 @@
             gap: 1rem;
         }
 
-        #chart-container {
-            height: 400px;
+        #price-chart {
+            height: 280px;
+        }
+
+        #volume-chart {
+            height: 120px;
         }
 
         .chart-controls {
@@ -723,7 +755,16 @@
             </label>
         </div>
     </div>
-    <div id="chart-container"></div>
+    <div id="chart-container">
+        <div class="chart-wrapper">
+            <div class="chart-title">Price ({{ summary.symbol }})</div>
+            <div id="price-chart"></div>
+        </div>
+        <div class="chart-wrapper">
+            <div class="chart-title">Volume</div>
+            <div id="volume-chart"></div>
+        </div>
+    </div>
     <div id="chart-loading" class="loading">Loading chart data...</div>
 </div>
 
@@ -1010,7 +1051,8 @@
 
 <script>
     // Global state
-    let chartInstance = null;
+    let priceChartInstance = null;
+    let volumeChartInstance = null;
     let candlestickSeries = null;
     let volumeSeries = null;
     let chartData = null;
@@ -1052,26 +1094,36 @@
 
     // Initialize Lightweight Charts
     function initializeChart(ohlcv, trades) {
-        const container = document.getElementById('chart-container');
+        const priceContainer = document.getElementById('price-chart');
+        const volumeContainer = document.getElementById('volume-chart');
 
-        // Remove existing chart instance to prevent duplicates
-        if (chartInstance) {
+        // Remove existing chart instances to prevent duplicates
+        if (priceChartInstance) {
             try {
-                chartInstance.remove();
+                priceChartInstance.remove();
             } catch (e) {
-                console.warn('Error removing chart:', e);
+                console.warn('Error removing price chart:', e);
             }
-            chartInstance = null;
+            priceChartInstance = null;
             candlestickSeries = null;
+        }
+
+        if (volumeChartInstance) {
+            try {
+                volumeChartInstance.remove();
+            } catch (e) {
+                console.warn('Error removing volume chart:', e);
+            }
+            volumeChartInstance = null;
             volumeSeries = null;
         }
 
-        // Clear container to ensure no remnants
-        container.innerHTML = '';
+        // Clear containers to ensure no remnants
+        priceContainer.innerHTML = '';
+        volumeContainer.innerHTML = '';
 
-        chartInstance = LightweightCharts.createChart(container, {
-            width: container.clientWidth,
-            height: 500,
+        // Common chart options
+        const commonOptions = {
             layout: {
                 background: { color: '#ffffff' },
                 textColor: '#333',
@@ -1091,10 +1143,17 @@
                 timeVisible: true,
                 secondsVisible: false,
             },
+        };
+
+        // Create price chart
+        priceChartInstance = LightweightCharts.createChart(priceContainer, {
+            width: priceContainer.clientWidth,
+            height: 350,
+            ...commonOptions,
         });
 
-        // Add candlestick series
-        candlestickSeries = chartInstance.addCandlestickSeries({
+        // Add candlestick series to price chart
+        candlestickSeries = priceChartInstance.addCandlestickSeries({
             upColor: '#10b981',
             downColor: '#ef4444',
             borderUpColor: '#10b981',
@@ -1105,38 +1164,65 @@
 
         candlestickSeries.setData(ohlcv);
 
-        // Add volume series
-        volumeSeries = chartInstance.addHistogramSeries({
+        // Create volume chart
+        volumeChartInstance = LightweightCharts.createChart(volumeContainer, {
+            width: volumeContainer.clientWidth,
+            height: 150,
+            ...commonOptions,
+        });
+
+        // Add volume series to volume chart
+        volumeSeries = volumeChartInstance.addHistogramSeries({
             color: '#9ca3af',
             priceFormat: {
                 type: 'volume',
-            },
-            priceScaleId: '',
-            scaleMargins: {
-                top: 0.8,
-                bottom: 0,
             },
         });
 
         const volumeData = ohlcv.map(d => ({
             time: d.time,
             value: d.volume || 0,
-            color: d.close >= d.open ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'
+            color: d.close >= d.open ? 'rgba(16, 185, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)'
         }));
         volumeSeries.setData(volumeData);
 
-        // Add trade markers
+        // Add trade markers to price chart
         updateTradeMarkers(trades);
 
-        // Auto-resize
-        window.addEventListener('resize', () => {
-            chartInstance.applyOptions({
-                width: container.clientWidth
-            });
+        // Synchronize time scales (prevent infinite loop with flag)
+        let isSyncing = false;
+
+        priceChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
+            if (timeRange && !isSyncing) {
+                isSyncing = true;
+                volumeChartInstance.timeScale().setVisibleRange(timeRange);
+                isSyncing = false;
+            }
         });
 
-        // Fit content
-        chartInstance.timeScale().fitContent();
+        volumeChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
+            if (timeRange && !isSyncing) {
+                isSyncing = true;
+                priceChartInstance.timeScale().setVisibleRange(timeRange);
+                isSyncing = false;
+            }
+        });
+
+        // Auto-resize
+        const resizeHandler = () => {
+            priceChartInstance.applyOptions({
+                width: priceContainer.clientWidth
+            });
+            volumeChartInstance.applyOptions({
+                width: volumeContainer.clientWidth
+            });
+        };
+
+        window.addEventListener('resize', resizeHandler);
+
+        // Fit content for both charts
+        priceChartInstance.timeScale().fitContent();
+        volumeChartInstance.timeScale().fitContent();
     }
 
     // Update trade markers on chart
@@ -1355,11 +1441,13 @@
             if (row) {
                 const idx = parseInt(row.dataset.tradeIndex);
                 const trade = tradesData[idx];
-                if (trade && chartInstance) {
-                    chartInstance.timeScale().setVisibleRange({
+                if (trade && priceChartInstance && volumeChartInstance) {
+                    const timeRange = {
                         from: trade.entry_time - 86400, // 1 day before
                         to: (trade.exit_time || trade.entry_time) + 86400 // 1 day after
-                    });
+                    };
+                    priceChartInstance.timeScale().setVisibleRange(timeRange);
+                    volumeChartInstance.timeScale().setVisibleRange(timeRange);
                 }
             }
         });
@@ -1367,7 +1455,7 @@
 
     // Apply time range filter
     function applyTimeRange(range) {
-        if (!chartInstance || !chartData) return;
+        if (!priceChartInstance || !volumeChartInstance || !chartData) return;
 
         const now = Date.now() / 1000;
         let from;
@@ -1384,14 +1472,18 @@
                 break;
             case 'all':
             default:
-                chartInstance.timeScale().fitContent();
+                priceChartInstance.timeScale().fitContent();
+                volumeChartInstance.timeScale().fitContent();
                 return;
         }
 
-        chartInstance.timeScale().setVisibleRange({
+        const timeRange = {
             from: from,
             to: now
-        });
+        };
+
+        priceChartInstance.timeScale().setVisibleRange(timeRange);
+        volumeChartInstance.timeScale().setVisibleRange(timeRange);
     }
 
     // ============================================================================
