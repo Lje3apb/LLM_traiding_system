@@ -781,6 +781,9 @@ async function fetchSessionStatus() {
 // ============================================================================
 // Chart Management
 // ============================================================================
+// Live Trading uses TWO separate charts (similar to Backtest):
+//   1. Price Chart (top): Candlesticks + indicators + trade markers
+//   2. Volume Chart (bottom): Volume histogram with synchronized time scale
 
 function initializeChart() {
     cleanupChart();
@@ -849,7 +852,9 @@ function initializeChart() {
         },
     });
 
-    // Synchronize time scales (prevent infinite loop with flag)
+    // Synchronize time scales between price and volume charts
+    // This ensures that zooming/panning one chart automatically syncs the other
+    // The isSyncing flag prevents infinite loops when setting ranges
     let isSyncing = false;
 
     priceChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
@@ -908,6 +913,7 @@ async function loadInitialBars() {
                 );
                 const limitedBars = sortedBars.slice(-MAX_BAR_HISTORY);
 
+                // Prepare candlestick data for price chart
                 chartBars = limitedBars.map(b => ({
                     time: new Date(b.timestamp).getTime() / 1000,
                     open: b.open,
@@ -918,6 +924,7 @@ async function loadInitialBars() {
 
                 candlestickSeries.setData(chartBars);
 
+                // Prepare volume data for volume chart (with color based on bar direction)
                 const volumeData = limitedBars.map(b => ({
                     time: new Date(b.timestamp).getTime() / 1000,
                     value: b.volume || 0,
@@ -970,7 +977,11 @@ async function loadInitialTrades() {
 }
 
 function updateChart(bar) {
-    if (!candlestickSeries || !volumeSeries) return;
+    // Ensure both chart series are initialized before updating
+    if (!candlestickSeries || !volumeSeries) {
+        console.warn('Chart series not initialized, skipping update');
+        return;
+    }
 
     const barData = {
         time: new Date(bar.timestamp).getTime() / 1000,
@@ -980,12 +991,14 @@ function updateChart(bar) {
         close: bar.close,
     };
 
+    // Update price chart (candlesticks)
     candlestickSeries.update(barData);
 
+    // Update volume chart with color based on bar direction
     volumeSeries.update({
         time: barData.time,
         value: bar.volume || 0,
-        color: barData.close >= barData.open ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'
+        color: barData.close >= barData.open ? 'rgba(16, 185, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)'
     });
 
     upsertChartBar(barData);
@@ -1036,7 +1049,7 @@ function setRSIEnabled(enabled, options = {}) {
     const { notifyOnInsufficientData = true } = options;
     const checkbox = document.getElementById('toggle-indicators-rsi');
 
-    if (!chartInstance) {
+    if (!priceChartInstance) {
         if (enabled) {
             showError('Chart not initialized');
         }
@@ -1075,7 +1088,7 @@ function setBBEnabled(enabled, options = {}) {
     const { notifyOnInsufficientData = true } = options;
     const checkbox = document.getElementById('toggle-indicators-bb');
 
-    if (!chartInstance) {
+    if (!priceChartInstance) {
         if (enabled) {
             showError('Chart not initialized');
         }
@@ -1122,7 +1135,7 @@ function setEMAEnabled(enabled, options = {}) {
     const { notifyOnInsufficientData = true } = options;
     const checkbox = document.getElementById('toggle-indicators-ema');
 
-    if (!chartInstance) {
+    if (!priceChartInstance) {
         if (enabled) {
             showError('Chart not initialized');
         }
@@ -1520,6 +1533,7 @@ function formatDateTime(timestamp) {
 
 /**
  * Clean up chart resources to prevent memory leaks
+ * Removes both price and volume chart instances and all series
  */
 function cleanupChart() {
     // Remove resize listener
@@ -1528,7 +1542,7 @@ function cleanupChart() {
         chartResizeHandler = null;
     }
 
-    // Clear all series references
+    // Clear all series references (price chart indicators + volume)
     candlestickSeries = null;
     volumeSeries = null;
     rsiSeries = null;
@@ -1539,7 +1553,7 @@ function cleanupChart() {
     tradeMarkers = [];
     chartBars = [];
 
-    // Remove price chart instance
+    // Remove price chart instance (top panel)
     if (priceChartInstance) {
         try {
             priceChartInstance.remove?.();
@@ -1549,7 +1563,7 @@ function cleanupChart() {
         priceChartInstance = null;
     }
 
-    // Remove volume chart instance
+    // Remove volume chart instance (bottom panel)
     if (volumeChartInstance) {
         try {
             volumeChartInstance.remove?.();
