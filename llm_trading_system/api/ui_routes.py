@@ -470,6 +470,8 @@ async def ui_save_strategy(
     bb_mult: float = Form(...),
     atr_len: int = Form(...),
     adx_len: int = Form(...),
+    vol_ma_len: int = Form(21),
+    vol_mult: float = Form(0.5),
     # LLM parameters
     k_max: float = Form(2.0),
     llm_horizon_hours: int = Form(24),
@@ -538,6 +540,8 @@ async def ui_save_strategy(
         "bb_mult": bb_mult,
         "atr_len": atr_len,
         "adx_len": adx_len,
+        "vol_ma_len": vol_ma_len,
+        "vol_mult": vol_mult,
         # LLM parameters
         "k_max": k_max,
         "llm_horizon_hours": llm_horizon_hours,

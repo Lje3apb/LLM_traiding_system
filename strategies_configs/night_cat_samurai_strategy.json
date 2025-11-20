@@ -23,6 +23,8 @@
   "bb_mult": 2.0,
   "atr_len": 14,
   "adx_len": 14,
+  "vol_ma_len": 21,
+  "vol_mult": 0.5,
   "k_max": 2.0,
   "llm_horizon_hours": 24,
   "llm_min_prob_edge": 0.55,
