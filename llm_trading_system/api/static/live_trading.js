@@ -787,7 +787,16 @@ function initializeChart() {
     const priceContainer = document.getElementById('live-price-chart');
     const volumeContainer = document.getElementById('live-volume-chart');
 
-    // Clear empty state messages
+    // Hide empty state and show chart wrappers
+    const emptyState = document.getElementById('chart-empty-state');
+    const priceWrapper = document.getElementById('price-chart-wrapper');
+    const volumeWrapper = document.getElementById('volume-chart-wrapper');
+
+    if (emptyState) emptyState.style.display = 'none';
+    if (priceWrapper) priceWrapper.style.display = 'block';
+    if (volumeWrapper) volumeWrapper.style.display = 'block';
+
+    // Clear any previous content
     priceContainer.innerHTML = '';
     volumeContainer.innerHTML = '';
 
@@ -1558,6 +1567,15 @@ function cleanupChart() {
         }
         volumeChartInstance = null;
     }
+
+    // Show empty state and hide chart wrappers
+    const emptyState = document.getElementById('chart-empty-state');
+    const priceWrapper = document.getElementById('price-chart-wrapper');
+    const volumeWrapper = document.getElementById('volume-chart-wrapper');
+
+    if (emptyState) emptyState.style.display = 'block';
+    if (priceWrapper) priceWrapper.style.display = 'none';
+    if (volumeWrapper) volumeWrapper.style.display = 'none';
 }
 
 /**
