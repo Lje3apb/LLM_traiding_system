@@ -39,6 +39,48 @@ templates = None
 _backtest_cache: dict[str, dict[str, Any]] = {}
 
 
+def _serialize_trade(trade: Any) -> dict[str, Any]:
+    """Serialize a Trade object to a JSON-serializable dictionary.
+
+    Args:
+        trade: Trade object from portfolio
+
+    Returns:
+        Dictionary with serialized trade data
+    """
+    return {
+        "open_time": trade.open_time.isoformat(),
+        "close_time": trade.close_time.isoformat() if trade.close_time else None,
+        "side": trade.side,
+        "entry_price": trade.entry_price,
+        "exit_price": trade.exit_price,
+        "size": trade.size,
+        "pnl": trade.pnl,
+    }
+
+
+def _serialize_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    """Serialize backtest summary for JSON response.
+
+    Converts Trade objects in trades_list to dictionaries.
+
+    Args:
+        summary: Backtest summary dictionary
+
+    Returns:
+        JSON-serializable summary dictionary
+    """
+    serialized = summary.copy()
+
+    # Serialize trades_list if present
+    if "trades_list" in serialized and serialized["trades_list"]:
+        serialized["trades_list"] = [
+            _serialize_trade(trade) for trade in serialized["trades_list"]
+        ]
+
+    return serialized
+
+
 # ============================================================================
 # CSRF Protection Helpers
 # ============================================================================
@@ -1471,10 +1513,10 @@ async def ui_recalculate_backtest(
             "config": config,
         }
 
-        # Return new summary
+        # Return new summary (serialize Trade objects for JSON)
         return JSONResponse({
             "success": True,
-            "summary": summary
+            "summary": _serialize_summary(summary)
         })
 
     except HTTPException:
