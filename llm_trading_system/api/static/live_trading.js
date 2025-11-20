@@ -794,6 +794,17 @@ function initializeChart() {
     priceContainer.innerHTML = '';
     volumeContainer.innerHTML = '';
 
+    // Create dedicated canvases so price and volume always render separately
+    const priceCanvas = document.createElement('div');
+    priceCanvas.className = 'chart-canvas';
+    priceCanvas.setAttribute('aria-label', 'Price chart canvas');
+    priceContainer.appendChild(priceCanvas);
+
+    const volumeCanvas = document.createElement('div');
+    volumeCanvas.className = 'chart-canvas';
+    volumeCanvas.setAttribute('aria-label', 'Volume chart canvas');
+    volumeContainer.appendChild(volumeCanvas);
+
     chartBars = [];
     tradeMarkers = [];
 
@@ -821,7 +832,7 @@ function initializeChart() {
     };
 
     // Create price chart
-    priceChartInstance = LightweightCharts.createChart(priceContainer, {
+    priceChartInstance = LightweightCharts.createChart(priceCanvas, {
         width: priceContainer.clientWidth,
         height: 350,
         ...commonOptions,
@@ -838,7 +849,7 @@ function initializeChart() {
     });
 
     // Create volume chart
-    volumeChartInstance = LightweightCharts.createChart(volumeContainer, {
+    volumeChartInstance = LightweightCharts.createChart(volumeCanvas, {
         width: volumeContainer.clientWidth,
         height: 150,
         ...commonOptions,
