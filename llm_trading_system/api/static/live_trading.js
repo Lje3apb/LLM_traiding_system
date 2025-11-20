@@ -790,6 +790,13 @@ function initializeChart() {
     const priceContainer = document.getElementById('live-price-chart');
     const volumeContainer = document.getElementById('live-volume-chart');
 
+    // Validate containers exist
+    if (!priceContainer || !volumeContainer) {
+        console.error('Chart containers not found!');
+        showError('Chart containers not found. Please refresh the page.');
+        return;
+    }
+
     // Clear empty state messages
     priceContainer.innerHTML = '';
     volumeContainer.innerHTML = '';
@@ -863,7 +870,9 @@ function initializeChart() {
         },
     });
 
+    // ========================================================================
     // Synchronize time scales between price and volume charts
+    // ========================================================================
     // This ensures that zooming/panning one chart automatically syncs the other
     // The isSyncing flag prevents infinite loops when setting ranges
     let isSyncing = false;
@@ -883,6 +892,38 @@ function initializeChart() {
             isSyncing = false;
         }
     });
+
+    // ========================================================================
+    // Synchronize crosshair between charts
+    // ========================================================================
+    // When user hovers over one chart, show crosshair on both charts at the same time
+    let isCrosshairSyncing = false;
+
+    priceChartInstance.subscribeCrosshairMove((param) => {
+        if (isCrosshairSyncing || !param || !param.time) return;
+
+        isCrosshairSyncing = true;
+        volumeChartInstance.setCrosshairPosition(
+            param.point ? param.point.x : undefined,
+            param.time,
+            volumeSeries
+        );
+        isCrosshairSyncing = false;
+    });
+
+    volumeChartInstance.subscribeCrosshairMove((param) => {
+        if (isCrosshairSyncing || !param || !param.time) return;
+
+        isCrosshairSyncing = true;
+        priceChartInstance.setCrosshairPosition(
+            param.point ? param.point.x : undefined,
+            param.time,
+            candlestickSeries
+        );
+        isCrosshairSyncing = false;
+    });
+
+    console.log('✓ Chart synchronization enabled (zoom/pan/crosshair)');
 
     // Auto-resize - remove old listener first to prevent memory leak
     if (chartResizeHandler) {
