@@ -868,6 +868,7 @@ function initializeChart() {
 
     priceChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
         if (timeRange && !isSyncing) {
+            console.log('📊 Price chart time range changed, syncing to volume chart:', timeRange);
             isSyncing = true;
             volumeChartInstance.timeScale().setVisibleRange(timeRange);
             isSyncing = false;
@@ -876,43 +877,14 @@ function initializeChart() {
 
     volumeChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
         if (timeRange && !isSyncing) {
+            console.log('📈 Volume chart time range changed, syncing to price chart:', timeRange);
             isSyncing = true;
             priceChartInstance.timeScale().setVisibleRange(timeRange);
             isSyncing = false;
         }
     });
 
-    // ========================================================================
-    // Synchronize crosshair between charts
-    // ========================================================================
-    // When user hovers over one chart, show crosshair on both charts at the same time
-    let isCrosshairSyncing = false;
-
-    priceChartInstance.subscribeCrosshairMove((param) => {
-        if (isCrosshairSyncing || !param || !param.time) return;
-
-        isCrosshairSyncing = true;
-        volumeChartInstance.setCrosshairPosition(
-            param.point ? param.point.x : undefined,
-            param.time,
-            volumeSeries
-        );
-        isCrosshairSyncing = false;
-    });
-
-    volumeChartInstance.subscribeCrosshairMove((param) => {
-        if (isCrosshairSyncing || !param || !param.time) return;
-
-        isCrosshairSyncing = true;
-        priceChartInstance.setCrosshairPosition(
-            param.point ? param.point.x : undefined,
-            param.time,
-            candlestickSeries
-        );
-        isCrosshairSyncing = false;
-    });
-
-    console.log('✓ Chart synchronization enabled (zoom/pan/crosshair)');
+    console.log('✓ Chart time scale synchronization initialized');
 
     // Auto-resize - remove old listener first to prevent memory leak
     if (chartResizeHandler) {
@@ -931,6 +903,10 @@ function initializeChart() {
     };
 
     window.addEventListener('resize', chartResizeHandler);
+
+    // Fit content for both charts to ensure they display properly
+    priceChartInstance.timeScale().fitContent();
+    volumeChartInstance.timeScale().fitContent();
 
     // Re-apply indicator visibility if user left toggles enabled
     restoreIndicatorState();
