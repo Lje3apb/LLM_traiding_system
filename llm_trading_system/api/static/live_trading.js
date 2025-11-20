@@ -884,13 +884,14 @@ function initializeChart() {
     let isSyncing = false;
 
     priceChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
-        // Validate timeRange has valid numeric from/to values
+        // Validate timeRange has valid numeric from/to values and proper range
         if (!isSyncing &&
             timeRange &&
             typeof timeRange.from === 'number' &&
             typeof timeRange.to === 'number' &&
             isFinite(timeRange.from) &&
-            isFinite(timeRange.to)) {
+            isFinite(timeRange.to) &&
+            timeRange.from < timeRange.to) {  // Ensure valid range (from must be less than to)
             console.log('📊 Price chart time range changed, syncing to volume chart:', timeRange);
             isSyncing = true;
             try {
@@ -903,13 +904,14 @@ function initializeChart() {
     });
 
     volumeChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
-        // Validate timeRange has valid numeric from/to values
+        // Validate timeRange has valid numeric from/to values and proper range
         if (!isSyncing &&
             timeRange &&
             typeof timeRange.from === 'number' &&
             typeof timeRange.to === 'number' &&
             isFinite(timeRange.from) &&
-            isFinite(timeRange.to)) {
+            isFinite(timeRange.to) &&
+            timeRange.from < timeRange.to) {  // Ensure valid range (from must be less than to)
             console.log('📈 Volume chart time range changed, syncing to price chart:', timeRange);
             isSyncing = true;
             try {
