@@ -873,19 +873,27 @@ function initializeChart() {
     let isSyncing = false;
 
     priceChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
-        if (timeRange && !isSyncing) {
+        if (!isSyncing && timeRange && timeRange.from != null && timeRange.to != null) {
             console.log('📊 Price chart time range changed, syncing to volume chart:', timeRange);
             isSyncing = true;
-            volumeChartInstance.timeScale().setVisibleRange(timeRange);
+            try {
+                volumeChartInstance.timeScale().setVisibleRange(timeRange);
+            } catch (e) {
+                console.warn('Failed to sync time range to volume chart:', e);
+            }
             isSyncing = false;
         }
     });
 
     volumeChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
-        if (timeRange && !isSyncing) {
+        if (!isSyncing && timeRange && timeRange.from != null && timeRange.to != null) {
             console.log('📈 Volume chart time range changed, syncing to price chart:', timeRange);
             isSyncing = true;
-            priceChartInstance.timeScale().setVisibleRange(timeRange);
+            try {
+                priceChartInstance.timeScale().setVisibleRange(timeRange);
+            } catch (e) {
+                console.warn('Failed to sync time range to price chart:', e);
+            }
             isSyncing = false;
         }
     });
