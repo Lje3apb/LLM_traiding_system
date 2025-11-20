@@ -584,10 +584,16 @@ function updateSessionDisplay(sessionData) {
 }
 
 function updateAccountMetrics(state) {
-    // Safely handle potentially undefined values
-    const equity = state.equity ?? 0;
-    const balance = state.balance ?? 0;
-    const realizedPnl = state.realized_pnl ?? 0;
+    // Guard against undefined/null state object
+    if (!state) {
+        console.warn('updateAccountMetrics called with null/undefined state');
+        return;
+    }
+
+    // Safely handle potentially undefined values with default fallbacks
+    const equity = (typeof state.equity === 'number' && isFinite(state.equity)) ? state.equity : 0;
+    const balance = (typeof state.balance === 'number' && isFinite(state.balance)) ? state.balance : 0;
+    const realizedPnl = (typeof state.realized_pnl === 'number' && isFinite(state.realized_pnl)) ? state.realized_pnl : 0;
 
     document.getElementById('account-equity').textContent = `$${equity.toFixed(2)}`;
     document.getElementById('account-balance').textContent = `$${balance.toFixed(2)}`;
@@ -597,14 +603,19 @@ function updateAccountMetrics(state) {
     realizedPnlElem.className = realizedPnl >= 0 ? 'metric-value positive' : 'metric-value negative';
 
     if (state.position && state.position.size !== 0) {
-        const positionSize = state.position.size ?? 0;
+        const positionSize = (typeof state.position.size === 'number' && isFinite(state.position.size))
+            ? state.position.size : 0;
         document.getElementById('account-position-size').textContent = positionSize.toFixed(4);
-        document.getElementById('account-entry-price').textContent =
-            state.position.avg_price ? `$${state.position.avg_price.toFixed(2)}` : '-';
 
+        const avgPrice = (state.position.avg_price && typeof state.position.avg_price === 'number')
+            ? `$${state.position.avg_price.toFixed(2)}` : '-';
+        document.getElementById('account-entry-price').textContent = avgPrice;
+
+        const unrealizedPnl = (typeof state.position.unrealized_pnl === 'number' && isFinite(state.position.unrealized_pnl))
+            ? state.position.unrealized_pnl : 0;
         const unrealizedPnlElem = document.getElementById('account-unrealized-pnl');
-        unrealizedPnlElem.textContent = formatPnL(state.position.unrealized_pnl || 0);
-        unrealizedPnlElem.className = (state.position.unrealized_pnl || 0) >= 0 ? 'metric-value positive' : 'metric-value negative';
+        unrealizedPnlElem.textContent = formatPnL(unrealizedPnl);
+        unrealizedPnlElem.className = unrealizedPnl >= 0 ? 'metric-value positive' : 'metric-value negative';
     } else {
         document.getElementById('account-position-size').textContent = '0.0000';
         document.getElementById('account-entry-price').textContent = '-';
