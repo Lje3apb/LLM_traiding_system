@@ -13,7 +13,8 @@ let ws = null;
 let wsReconnectAttempts = 0;
 let wsReconnectTimer = null;
 let wsHeartbeatInterval = null;  // Global reference to heartbeat interval
-let chartInstance = null;
+let priceChartInstance = null;
+let volumeChartInstance = null;
 let chartResizeHandler = null;  // Global reference to resize handler
 let candlestickSeries = null;
 let volumeSeries = null;
@@ -783,15 +784,18 @@ async function fetchSessionStatus() {
 
 function initializeChart() {
     cleanupChart();
-    const container = document.getElementById('live-chart-container');
-    container.innerHTML = ''; // Clear empty state
+    const priceContainer = document.getElementById('live-price-chart');
+    const volumeContainer = document.getElementById('live-volume-chart');
+
+    // Clear empty state messages
+    priceContainer.innerHTML = '';
+    volumeContainer.innerHTML = '';
 
     chartBars = [];
     tradeMarkers = [];
 
-    chartInstance = LightweightCharts.createChart(container, {
-        width: container.clientWidth,
-        height: 500,
+    // Common chart options
+    const commonOptions = {
         layout: {
             background: { color: '#ffffff' },
             textColor: '#333',
@@ -811,10 +815,17 @@ function initializeChart() {
             timeVisible: true,
             secondsVisible: false,
         },
+    };
+
+    // Create price chart
+    priceChartInstance = LightweightCharts.createChart(priceContainer, {
+        width: priceContainer.clientWidth,
+        height: 350,
+        ...commonOptions,
     });
 
-    // Add candlestick series
-    candlestickSeries = chartInstance.addCandlestickSeries({
+    // Add candlestick series to price chart
+    candlestickSeries = priceChartInstance.addCandlestickSeries({
         upColor: '#10b981',
         downColor: '#ef4444',
         borderUpColor: '#10b981',
@@ -823,17 +834,38 @@ function initializeChart() {
         wickDownColor: '#ef4444',
     });
 
-    // Add volume series
-    volumeSeries = chartInstance.addHistogramSeries({
+    // Create volume chart
+    volumeChartInstance = LightweightCharts.createChart(volumeContainer, {
+        width: volumeContainer.clientWidth,
+        height: 150,
+        ...commonOptions,
+    });
+
+    // Add volume series to volume chart
+    volumeSeries = volumeChartInstance.addHistogramSeries({
         color: '#9ca3af',
         priceFormat: {
             type: 'volume',
         },
-        priceScaleId: '',
-        scaleMargins: {
-            top: 0.8,
-            bottom: 0,
-        },
+    });
+
+    // Synchronize time scales (prevent infinite loop with flag)
+    let isSyncing = false;
+
+    priceChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
+        if (timeRange && !isSyncing) {
+            isSyncing = true;
+            volumeChartInstance.timeScale().setVisibleRange(timeRange);
+            isSyncing = false;
+        }
+    });
+
+    volumeChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
+        if (timeRange && !isSyncing) {
+            isSyncing = true;
+            priceChartInstance.timeScale().setVisibleRange(timeRange);
+            isSyncing = false;
+        }
     });
 
     // Auto-resize - remove old listener first to prevent memory leak
@@ -842,9 +874,12 @@ function initializeChart() {
     }
 
     chartResizeHandler = () => {
-        if (chartInstance) {
-            chartInstance.applyOptions({
-                width: container.clientWidth
+        if (priceChartInstance && volumeChartInstance) {
+            priceChartInstance.applyOptions({
+                width: priceContainer.clientWidth
+            });
+            volumeChartInstance.applyOptions({
+                width: volumeContainer.clientWidth
             });
         }
     };
@@ -887,12 +922,13 @@ async function loadInitialBars() {
                     time: new Date(b.timestamp).getTime() / 1000,
                     value: b.volume || 0,
                     color: b.close >= b.open
-                        ? 'rgba(16, 185, 129, 0.3)'
-                        : 'rgba(239, 68, 68, 0.3)'
+                        ? 'rgba(16, 185, 129, 0.5)'
+                        : 'rgba(239, 68, 68, 0.5)'
                 }));
                 volumeSeries.setData(volumeData);
 
-                chartInstance.timeScale().fitContent();
+                priceChartInstance.timeScale().fitContent();
+                volumeChartInstance.timeScale().fitContent();
                 refreshIndicators();
 
                 console.log(`Loaded ${chartBars.length} bars`);
@@ -1011,13 +1047,13 @@ function setRSIEnabled(enabled, options = {}) {
     if (enabled) {
         if (!rsiSeries) {
             try {
-                rsiSeries = chartInstance.addLineSeries({
+                rsiSeries = priceChartInstance.addLineSeries({
                     color: '#9333ea',
                     lineWidth: 2,
                     priceScaleId: 'rsi',
                     priceFormat: { precision: 2, minMove: 0.1 },
                 });
-                chartInstance.priceScale('rsi').applyOptions({
+                priceChartInstance.priceScale('rsi').applyOptions({
                     scaleMargins: { top: 0.8, bottom: 0.02 },
                     borderVisible: false,
                 });
@@ -1030,7 +1066,7 @@ function setRSIEnabled(enabled, options = {}) {
         }
         updateRsiSeriesData({ notifyOnInsufficientData });
     } else if (rsiSeries) {
-        chartInstance.removeSeries(rsiSeries);
+        priceChartInstance.removeSeries(rsiSeries);
         rsiSeries = null;
     }
 }
@@ -1050,16 +1086,16 @@ function setBBEnabled(enabled, options = {}) {
     if (enabled) {
         if (!bbUpperSeries) {
             try {
-                bbUpperSeries = chartInstance.addLineSeries({
+                bbUpperSeries = priceChartInstance.addLineSeries({
                     color: '#3b82f6',
                     lineWidth: 1,
                     lineStyle: 2,
                 });
-                bbMiddleSeries = chartInstance.addLineSeries({
+                bbMiddleSeries = priceChartInstance.addLineSeries({
                     color: '#3b82f6',
                     lineWidth: 1,
                 });
-                bbLowerSeries = chartInstance.addLineSeries({
+                bbLowerSeries = priceChartInstance.addLineSeries({
                     color: '#3b82f6',
                     lineWidth: 1,
                     lineStyle: 2,
@@ -1073,9 +1109,9 @@ function setBBEnabled(enabled, options = {}) {
         }
         updateBollingerSeriesData({ notifyOnInsufficientData });
     } else if (bbUpperSeries) {
-        chartInstance.removeSeries(bbUpperSeries);
-        chartInstance.removeSeries(bbMiddleSeries);
-        chartInstance.removeSeries(bbLowerSeries);
+        priceChartInstance.removeSeries(bbUpperSeries);
+        priceChartInstance.removeSeries(bbMiddleSeries);
+        priceChartInstance.removeSeries(bbLowerSeries);
         bbUpperSeries = null;
         bbMiddleSeries = null;
         bbLowerSeries = null;
@@ -1097,7 +1133,7 @@ function setEMAEnabled(enabled, options = {}) {
     if (enabled) {
         if (!emaSeries) {
             try {
-                emaSeries = chartInstance.addLineSeries({
+                emaSeries = priceChartInstance.addLineSeries({
                     color: '#f59e0b',
                     lineWidth: 2,
                 });
@@ -1110,7 +1146,7 @@ function setEMAEnabled(enabled, options = {}) {
         }
         updateEmaSeriesData({ notifyOnInsufficientData });
     } else if (emaSeries) {
-        chartInstance.removeSeries(emaSeries);
+        priceChartInstance.removeSeries(emaSeries);
         emaSeries = null;
     }
 }
@@ -1313,6 +1349,12 @@ function updateSessionSummary(config, state) {
         document.getElementById('summary-session-id').textContent =
             currentSessionId ? currentSessionId.substring(0, 12) + '...' : '-';
 
+        // Update chart symbol label
+        const symbolLabel = document.getElementById('chart-symbol-label');
+        if (symbolLabel && config.symbol) {
+            symbolLabel.textContent = `(${config.symbol})`;
+        }
+
         const modeBadge = document.getElementById('summary-mode-badge');
         modeBadge.textContent = config.mode === 'paper' ? 'Paper' : 'Real';
         modeBadge.className = `mode-badge ${config.mode}`;
@@ -1497,14 +1539,24 @@ function cleanupChart() {
     tradeMarkers = [];
     chartBars = [];
 
-    // Remove chart instance (if library supports it)
-    if (chartInstance) {
+    // Remove price chart instance
+    if (priceChartInstance) {
         try {
-            chartInstance.remove?.();
+            priceChartInstance.remove?.();
         } catch (e) {
-            console.warn('Error removing chart:', e);
+            console.warn('Error removing price chart:', e);
         }
-        chartInstance = null;
+        priceChartInstance = null;
+    }
+
+    // Remove volume chart instance
+    if (volumeChartInstance) {
+        try {
+            volumeChartInstance.remove?.();
+        } catch (e) {
+            console.warn('Error removing volume chart:', e);
+        }
+        volumeChartInstance = null;
     }
 }
 
