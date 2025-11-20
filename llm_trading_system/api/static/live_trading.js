@@ -892,7 +892,6 @@ function initializeChart() {
             isFinite(timeRange.from) &&
             isFinite(timeRange.to) &&
             timeRange.from < timeRange.to) {  // Ensure valid range (from must be less than to)
-            console.log('📊 Price chart time range changed, syncing to volume chart:', timeRange);
             isSyncing = true;
             try {
                 volumeChartInstance.timeScale().setVisibleRange(timeRange);
@@ -912,7 +911,6 @@ function initializeChart() {
             isFinite(timeRange.from) &&
             isFinite(timeRange.to) &&
             timeRange.from < timeRange.to) {  // Ensure valid range (from must be less than to)
-            console.log('📈 Volume chart time range changed, syncing to price chart:', timeRange);
             isSyncing = true;
             try {
                 priceChartInstance.timeScale().setVisibleRange(timeRange);
@@ -922,8 +920,6 @@ function initializeChart() {
             isSyncing = false;
         }
     });
-
-    console.log('✓ Chart time scale synchronization initialized');
 
     // Auto-resize - remove old listener first to prevent memory leak
     if (chartResizeHandler) {
