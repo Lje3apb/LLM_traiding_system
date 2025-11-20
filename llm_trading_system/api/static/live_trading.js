@@ -790,21 +790,11 @@ function initializeChart() {
     const priceContainer = document.getElementById('live-price-chart');
     const volumeContainer = document.getElementById('live-volume-chart');
 
-    // Debug: Log container dimensions
-    console.log('🔄 Initializing charts...');
-    console.log('📊 Price container:', priceContainer, 'Width:', priceContainer?.clientWidth, 'Height:', priceContainer?.clientHeight);
-    console.log('📈 Volume container:', volumeContainer, 'Width:', volumeContainer?.clientWidth, 'Height:', volumeContainer?.clientHeight);
-
     // Validate containers exist
     if (!priceContainer || !volumeContainer) {
-        console.error('❌ Chart containers not found!');
+        console.error('Chart containers not found!');
         showError('Chart containers not found. Please refresh the page.');
         return;
-    }
-
-    // Validate containers have dimensions
-    if (priceContainer.clientWidth === 0) {
-        console.warn('⚠️ Price container has zero width, charts may not render correctly');
     }
 
     // Clear empty state messages
@@ -843,7 +833,6 @@ function initializeChart() {
         height: 350,
         ...commonOptions,
     });
-    console.log('✓ Price chart created:', priceChartInstance);
 
     // Add candlestick series to price chart
     candlestickSeries = priceChartInstance.addCandlestickSeries({
@@ -854,7 +843,6 @@ function initializeChart() {
         wickUpColor: '#10b981',
         wickDownColor: '#ef4444',
     });
-    console.log('✓ Candlestick series added to price chart');
 
     // Create volume chart
     volumeChartInstance = LightweightCharts.createChart(volumeContainer, {
@@ -862,7 +850,6 @@ function initializeChart() {
         height: 150,
         ...commonOptions,
     });
-    console.log('✓ Volume chart created:', volumeChartInstance);
 
     // Add volume series to volume chart
     volumeSeries = volumeChartInstance.addHistogramSeries({
@@ -871,9 +858,10 @@ function initializeChart() {
             type: 'volume',
         },
     });
-    console.log('✓ Volume series added to volume chart');
 
+    // ========================================================================
     // Synchronize time scales between price and volume charts
+    // ========================================================================
     // This ensures that zooming/panning one chart automatically syncs the other
     // The isSyncing flag prevents infinite loops when setting ranges
     let isSyncing = false;
@@ -893,6 +881,38 @@ function initializeChart() {
             isSyncing = false;
         }
     });
+
+    // ========================================================================
+    // Synchronize crosshair between charts
+    // ========================================================================
+    // When user hovers over one chart, show crosshair on both charts at the same time
+    let isCrosshairSyncing = false;
+
+    priceChartInstance.subscribeCrosshairMove((param) => {
+        if (isCrosshairSyncing || !param || !param.time) return;
+
+        isCrosshairSyncing = true;
+        volumeChartInstance.setCrosshairPosition(
+            param.point ? param.point.x : undefined,
+            param.time,
+            volumeSeries
+        );
+        isCrosshairSyncing = false;
+    });
+
+    volumeChartInstance.subscribeCrosshairMove((param) => {
+        if (isCrosshairSyncing || !param || !param.time) return;
+
+        isCrosshairSyncing = true;
+        priceChartInstance.setCrosshairPosition(
+            param.point ? param.point.x : undefined,
+            param.time,
+            candlestickSeries
+        );
+        isCrosshairSyncing = false;
+    });
+
+    console.log('✓ Chart synchronization enabled (zoom/pan/crosshair)');
 
     // Auto-resize - remove old listener first to prevent memory leak
     if (chartResizeHandler) {
@@ -914,13 +934,6 @@ function initializeChart() {
 
     // Re-apply indicator visibility if user left toggles enabled
     restoreIndicatorState();
-
-    // Debug: Confirm both charts are initialized
-    console.log('✅ Chart initialization complete!');
-    console.log('   - Price chart instance:', !!priceChartInstance);
-    console.log('   - Volume chart instance:', !!volumeChartInstance);
-    console.log('   - Price container children:', priceContainer.children.length);
-    console.log('   - Volume container children:', volumeContainer.children.length);
 }
 
 async function loadInitialBars() {
