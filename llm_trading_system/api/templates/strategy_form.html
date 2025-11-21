@@ -204,6 +204,77 @@
     </div>
 
     <div class="form-section">
+        <h3>Time Filter (Trading Hours)</h3>
+        <p class="help-text" style="margin-bottom: 1rem;">
+            <strong>Note:</strong> Time filter allows you to restrict trading to specific hours (UTC timezone).
+            When enabled, the strategy will only enter new positions during the specified time window.
+            Existing positions will be managed (TP/SL, exit rules) regardless of time.
+        </p>
+
+        <div class="form-group">
+            <label>
+                <input type="checkbox" name="time_filter_enabled" id="time_filter_enabled" {% if config.get('time_filter_enabled', False) %}checked{% endif %}>
+                Enable Time Filter
+            </label>
+            <small class="help-text">Restrict trading to specific hours (UTC timezone)</small>
+        </div>
+
+        <div class="form-row" id="time_filter_settings">
+            <div class="form-group">
+                <label for="time_filter_start_hour">Start Hour (UTC)</label>
+                <input type="number" id="time_filter_start_hour" name="time_filter_start_hour" value="{{ config.get('time_filter_start_hour', 0) }}" min="0" max="23" step="1">
+                <small class="help-text">Trading starts at this hour (0-23, UTC timezone)</small>
+            </div>
+
+            <div class="form-group">
+                <label for="time_filter_end_hour">End Hour (UTC)</label>
+                <input type="number" id="time_filter_end_hour" name="time_filter_end_hour" value="{{ config.get('time_filter_end_hour', 23) }}" min="0" max="23" step="1">
+                <small class="help-text">Trading ends at this hour (0-23, UTC timezone)</small>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <small class="help-text">
+                <strong>Examples:</strong><br>
+                • Day trading (09:00-17:00 UTC): Start=9, End=17<br>
+                • Night trading (22:00-06:00 UTC): Start=22, End=6 (wrap-around supported)<br>
+                • Asian session (00:00-08:00 UTC): Start=0, End=8
+            </small>
+        </div>
+
+        <script>
+            // Show/hide time filter settings based on checkbox
+            (function() {
+                function toggleTimeFilterSettings() {
+                    const checkbox = document.getElementById('time_filter_enabled');
+                    const settings = document.getElementById('time_filter_settings');
+                    if (checkbox && settings) {
+                        settings.style.display = checkbox.checked ? 'flex' : 'none';
+                    }
+                }
+
+                // Add event listener when DOM is ready
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', function() {
+                        toggleTimeFilterSettings();
+                        const checkbox = document.getElementById('time_filter_enabled');
+                        if (checkbox) {
+                            checkbox.addEventListener('change', toggleTimeFilterSettings);
+                        }
+                    });
+                } else {
+                    // DOM already loaded
+                    toggleTimeFilterSettings();
+                    const checkbox = document.getElementById('time_filter_enabled');
+                    if (checkbox) {
+                        checkbox.addEventListener('change', toggleTimeFilterSettings);
+                    }
+                }
+            })();
+        </script>
+    </div>
+
+    <div class="form-section">
         <h3>LLM Parameters (for LLM_ONLY and HYBRID modes)</h3>
         <p class="help-text" style="margin-bottom: 1rem;">
             <strong>Live Trading Note:</strong> When LLM mode is enabled in live trading, the strategy will adjust position sizes based on LLM regime predictions (bullish/bearish/neutral). This multiplies the base position size by a regime-specific factor (k).
