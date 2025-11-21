@@ -66,6 +66,7 @@ function setupEventListeners() {
     document.getElementById('create-session-btn').addEventListener('click', createSession);
     document.getElementById('start-session-btn').addEventListener('click', startSession);
     document.getElementById('stop-session-btn').addEventListener('click', stopSession);
+    document.getElementById('reset-session-btn').addEventListener('click', resetSession);
     document.getElementById('refresh-balance-btn').addEventListener('click', refreshBalance);
 
     // Chart indicator controls
@@ -416,6 +417,50 @@ async function stopSession() {
     }
 }
 
+async function resetSession() {
+    if (!currentSessionId || isLoading) {
+        return;
+    }
+
+    if (currentMode !== 'paper') {
+        showError('Reset is only available in paper mode.');
+        return;
+    }
+
+    const confirmed = confirm('Reset paper account? This will clear positions and P&L.');
+    if (!confirmed) {
+        return;
+    }
+
+    setLoading(true);
+    try {
+        const response = await fetchWithTimeout(`/api/live/sessions/${currentSessionId}/reset`, {
+            method: 'POST'
+        }, 10000);
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to reset session');
+        }
+
+        const data = await response.json();
+        sessionStatus = data.status;
+
+        updateSessionDisplay(data);
+        updateUIState();
+        disconnectWebSocket();
+        stopDurationTimer();
+
+        addLogEntry('Paper account reset to initial deposit', 'warning');
+        showSuccess('Paper account reset');
+    } catch (error) {
+        console.error('Failed to reset session:', error);
+        showError(`Failed to reset session: ${error.message}`);
+    } finally {
+        setLoading(false);
+    }
+}
+
 // ============================================================================
 // WebSocket Real-time Updates
 // ============================================================================
@@ -743,23 +788,28 @@ function updateUIState() {
     const createBtn = document.getElementById('create-session-btn');
     const startBtn = document.getElementById('start-session-btn');
     const stopBtn = document.getElementById('stop-session-btn');
+    const resetBtn = document.getElementById('reset-session-btn');
 
     if (!currentSessionId) {
         createBtn.disabled = isLoading;
         startBtn.disabled = true;
         stopBtn.disabled = true;
+        resetBtn.disabled = true;
     } else if (sessionStatus === 'created' || sessionStatus === 'stopped') {
         createBtn.disabled = true;
         startBtn.disabled = isLoading;
         stopBtn.disabled = true;
+        resetBtn.disabled = isLoading || currentMode !== 'paper';
     } else if (sessionStatus === 'running') {
         createBtn.disabled = true;
         startBtn.disabled = true;
         stopBtn.disabled = isLoading;
+        resetBtn.disabled = true;
     } else {
         createBtn.disabled = true;
         startBtn.disabled = true;
         stopBtn.disabled = true;
+        resetBtn.disabled = true;
     }
 }
 
