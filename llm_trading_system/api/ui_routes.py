@@ -502,6 +502,10 @@ async def ui_save_strategy(
     tp_short_pct: float = Form(2.0),
     sl_short_pct: float = Form(2.0),
     use_tp_sl: bool = Form(False),
+    # Time filter parameters
+    time_filter_enabled: bool = Form(False),
+    time_filter_start_hour: int = Form(0),
+    time_filter_end_hour: int = Form(23),
     # Indicator parameters
     ema_fast_len: int = Form(...),
     ema_slow_len: int = Form(...),
@@ -542,6 +546,19 @@ async def ui_save_strategy(
     # CSRF validation (must be first to prevent processing invalid requests)
     _verify_csrf_token(request, csrf_token)
 
+    # Validate time_filter parameters
+    if time_filter_enabled:
+        if not (0 <= time_filter_start_hour <= 23):
+            raise HTTPException(
+                status_code=400,
+                detail=f"time_filter_start_hour must be in [0, 23], got {time_filter_start_hour}"
+            )
+        if not (0 <= time_filter_end_hour <= 23):
+            raise HTTPException(
+                status_code=400,
+                detail=f"time_filter_end_hour must be in [0, 23], got {time_filter_end_hour}"
+            )
+
     # Use form name if different from URL name (for new strategies)
     actual_name = strategy_name if name == "new" else name
 
@@ -572,6 +589,10 @@ async def ui_save_strategy(
         "tp_short_pct": tp_short_pct,
         "sl_short_pct": sl_short_pct,
         "use_tp_sl": use_tp_sl,
+        # Time filter
+        "time_filter_enabled": time_filter_enabled,
+        "time_filter_start_hour": time_filter_start_hour,
+        "time_filter_end_hour": time_filter_end_hour,
         # Indicator parameters
         "ema_fast_len": ema_fast_len,
         "ema_slow_len": ema_slow_len,
