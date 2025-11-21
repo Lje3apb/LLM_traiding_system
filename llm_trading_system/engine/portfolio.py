@@ -456,6 +456,31 @@ class PortfolioSimulator:
                 symbol=self.account.symbol,
             )
 
+    def reset_account(self, initial_equity: float) -> None:
+        """Reset portfolio state for a fresh paper account.
+
+        This keeps the same PortfolioSimulator instance (so LiveSession and
+        LiveTradingEngine references remain valid) while clearing positions,
+        trades, and equity history. Primarily used for explicit user-triggered
+        resets in paper mode.
+        """
+        with self._lock:  # type: ignore
+            self.account.equity = initial_equity
+            self.account.position_size = 0.0
+            self.account.entry_price = None
+
+            self._position_units = 0.0
+            self._position_open_time = None
+            self._entry_equity = initial_equity
+            self._total_entry_fees = 0.0
+            self._is_bankrupt = False
+            self._highest_equity_in_position = 0.0
+            self._equity_before_position = initial_equity
+
+            # Clear trade/equity history
+            self.trades.clear()
+            self.equity_curve.clear()
+
     def get_position_units(self) -> float:
         """Get thread-safe snapshot of position units.
 

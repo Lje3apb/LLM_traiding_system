@@ -243,6 +243,36 @@ class LiveSession:
 
         logger.info(f"LiveSession {self.session_id} stopped")
 
+    def reset(self) -> None:
+        """Reset paper trading account state without recreating the session.
+
+        This is only supported for paper mode and requires the session to be
+        stopped to avoid mutating live trading state mid-run.
+        """
+
+        with self._lock:
+            if self.config.mode != "paper":
+                raise RuntimeError("Reset is only supported in paper mode")
+
+            if self.status == "running":
+                raise RuntimeError(
+                    "Stop the session before resetting the paper account"
+                )
+
+            # Reinitialize portfolio/account while keeping the same object so
+            # engine references remain valid
+            self.portfolio.reset_account(self.config.initial_deposit)
+
+            # Clear bar history but keep configuration and session metadata
+            self._bar_history.clear()
+
+            # Rebuild last_state from the refreshed portfolio
+            self.last_state = self._build_initial_state()
+            self.last_state.status = self.status
+            self.last_state.timestamp = datetime.now(timezone.utc)
+
+        logger.info(f"LiveSession {self.session_id} paper account reset")
+
     def _cleanup_resources(self) -> None:
         """Clean up session resources.
 
@@ -902,6 +932,23 @@ class LiveSessionManager:
         """
         session = self._get_session(session_id)
         session.stop()
+        return session.get_status()
+
+    def reset_session(self, session_id: str) -> dict[str, Any]:
+        """Reset a paper session's account state without recreating it.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            Session status dict after reset
+
+        Raises:
+            KeyError: If session not found
+        """
+
+        session = self._get_session(session_id)
+        session.reset()
         return session.get_status()
 
     def get_session(self, session_id: str) -> LiveSession | None:
