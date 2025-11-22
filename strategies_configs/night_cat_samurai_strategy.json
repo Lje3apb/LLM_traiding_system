@@ -18,6 +18,9 @@
   "use_tp_sl": true,
 
   "rsi_len": 14,
+  "rsi_ovs": 22,
+  "rsi_ovb": 80,
+
   "bb_len": 20,
   "bb_mult": 2.0,
   "vol_ma_len": 21,
@@ -29,27 +32,27 @@
 
   "rules": {
     "long_entry": [
-      {"left": "hour", "op": ">=", "right": 0},
-      {"left": "hour", "op": "<=", "right": 7},
-      {"left": "rsi",  "op": "<",  "right": 22},
+      {"left": "hour", "op": ">=", "right": "time_filter_start_hour"},
+      {"left": "hour", "op": "<=", "right": "time_filter_end_hour"},
+      {"left": "rsi",  "op": "<",  "right": "rsi_ovs"},
       {"left": "low",  "op": "<=", "right": "lower_bb"},
       {"left": "volume", "op": ">", "right": "vol_threshold"}
     ],
 
     "short_entry": [
-      {"left": "hour", "op": ">=", "right": 0},
-      {"left": "hour", "op": "<=", "right": 7},
-      {"left": "rsi",  "op": ">",  "right": 80},
+      {"left": "hour", "op": ">=", "right": "time_filter_start_hour"},
+      {"left": "hour", "op": "<=", "right": "time_filter_end_hour"},
+      {"left": "rsi",  "op": ">",  "right": "rsi_ovb"},
       {"left": "high", "op": ">=", "right": "upper_bb"},
       {"left": "volume", "op": ">", "right": "vol_threshold"}
     ],
 
     "long_exit": [
-      {"left": "rsi", "op": ">", "right": 70}
+      {"left": "rsi", "op": ">", "right": "rsi_ovb"}
     ],
 
     "short_exit": [
-      {"left": "rsi", "op": "<", "right": 30}
+      {"left": "rsi", "op": "<", "right": "rsi_ovs"}
     ]
   }
 }
