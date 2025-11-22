@@ -906,21 +906,21 @@ function initializeChart() {
         handleScale: {
             mouseWheel: true,       // Allow zoom with mouse wheel
             pinch: true,            // Allow pinch zoom on touch devices
-            axisPressedMouseMove: {  // Allow zoom only when pressing axis
+            axisPressedMouseMove: false,  // DISABLE zoom when dragging axis (causes issues)
+            axisDoubleClickReset: {
                 time: true,
                 price: true,
             },
-            axisDoubleClickReset: true,  // Double-click axis to reset
         },
         handleScroll: {
             mouseWheel: true,       // Allow scroll with mouse wheel
             pressedMouseMove: false, // DISABLE drag pan with left mouse button
             horzTouchDrag: true,    // Allow horizontal touch drag on mobile
-            vertTouchDrag: true,    // Allow vertical touch drag on mobile
+            vertTouchDrag: false,   // Disable vertical touch drag
         },
         kineticScroll: {
             mouse: false,           // DISABLE kinetic scroll on mouse drag
-            touch: true,            // Keep kinetic scroll for touch devices
+            touch: false,           // DISABLE kinetic scroll for touch (causes zoom)
         },
     };
 
@@ -955,6 +955,23 @@ function initializeChart() {
             type: 'volume',
         },
     });
+
+    // ========================================================================
+    // Disable mouse drag interactions (prevent unwanted pan/zoom)
+    // ========================================================================
+    // Block mousedown events on chart canvas to prevent drag behavior
+    const disableMouseDrag = (canvas) => {
+        canvas.addEventListener('mousedown', (e) => {
+            // Allow mouse wheel for zoom, but prevent drag
+            if (e.button === 0) {  // Left mouse button
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        }, { capture: true, passive: false });
+    };
+
+    disableMouseDrag(priceCanvas);
+    disableMouseDrag(volumeCanvas);
 
     // ========================================================================
     // Synchronize time scales between price and volume charts
