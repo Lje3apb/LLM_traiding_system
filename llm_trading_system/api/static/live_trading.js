@@ -906,17 +906,17 @@ function initializeChart() {
         handleScale: {
             mouseWheel: true,           // Zoom with mouse wheel
             pinch: true,                // Pinch zoom on touch
-            axisPressedMouseMove: false, // Disable zoom by dragging time/price axis
+            axisPressedMouseMove: false, // Disable zoom by dragging axis
         },
         handleScroll: {
             mouseWheel: true,           // Scroll with mouse wheel
-            pressedMouseMove: false,    // Disable pan by dragging chart area
+            pressedMouseMove: true,     // ENABLE pan by dragging chart
             horzTouchDrag: true,        // Allow horizontal touch drag
             vertTouchDrag: true,        // Allow vertical touch drag
         },
         kineticScroll: {
-            mouse: false,               // Disable momentum scrolling on mouse
-            touch: true,                // Keep momentum scrolling for touch
+            mouse: false,               // DISABLE kinetic scroll (prevents zoom at edges)
+            touch: true,                // Keep kinetic scroll for touch
         },
     };
 
