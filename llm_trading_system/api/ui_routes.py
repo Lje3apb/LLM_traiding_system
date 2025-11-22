@@ -1528,6 +1528,12 @@ async def ui_recalculate_backtest(
         # Load base config and merge with new parameters
         config = storage.load_config(name)
 
+        # Debug: Log config before update
+        logger.info(f"=== CONFIG BEFORE UPDATE ===")
+        logger.info(f"Config from file - use_martingale: {config.get('use_martingale')}")
+        logger.info(f"Config from file - martingale_mult: {config.get('martingale_mult')}")
+        logger.info(f"=============================")
+
         # Update config with new parameters (without saving to disk)
         config.update({
             "strategy_type": params.get("strategy_type", config.get("strategy_type")),
