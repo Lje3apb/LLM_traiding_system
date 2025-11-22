@@ -921,21 +921,6 @@ function initializeChart() {
             timeVisible: true,
             secondsVisible: false,
         },
-        handleScale: {
-            mouseWheel: true,           // Zoom with mouse wheel
-            pinch: true,                // Pinch zoom on touch
-            axisPressedMouseMove: false, // Disable zoom by dragging axis
-        },
-        handleScroll: {
-            mouseWheel: true,           // Scroll with mouse wheel
-            pressedMouseMove: true,     // ENABLE pan by dragging chart
-            horzTouchDrag: true,        // Allow horizontal touch drag
-            vertTouchDrag: true,        // Allow vertical touch drag
-        },
-        kineticScroll: {
-            mouse: false,               // DISABLE kinetic scroll (prevents zoom at edges)
-            touch: true,                // Keep kinetic scroll for touch
-        },
     };
 
     // Create price chart
