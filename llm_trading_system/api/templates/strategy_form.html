@@ -152,15 +152,15 @@
             </div>
         </div>
 
-        <div class="form-row">
-            <div class="form-group">
-                <label>
-                    <input type="checkbox" name="use_martingale" {% if config.get('use_martingale', False) %}checked{% endif %}>
-                    Use Martingale
-                </label>
-                <small class="help-text">Enable martingale position scaling</small>
-            </div>
+        <div class="form-group">
+            <label>
+                <input type="checkbox" name="use_martingale" id="use_martingale" {% if config.get('use_martingale', False) %}checked{% endif %}>
+                Use Martingale
+            </label>
+            <small class="help-text">Enable martingale position scaling</small>
+        </div>
 
+        <div class="form-row" id="martingale_settings" style="display: {% if config.get('use_martingale', False) %}flex{% else %}none{% endif %};">
             <div class="form-group">
                 <label for="martingale_mult">Martingale Multiplier</label>
                 <input type="number" id="martingale_mult" name="martingale_mult" value="{{ config.get('martingale_mult', 1.5) }}" step="0.1" min="1.0">
@@ -168,40 +168,42 @@
             </div>
         </div>
 
-        <div class="form-row">
-            <div class="form-group">
-                <label for="tp_long_pct">TP Long (%)</label>
-                <input type="number" id="tp_long_pct" name="tp_long_pct" value="{{ config.get('tp_long_pct', 2.0) }}" step="0.1" min="0">
-                <small class="help-text">Take profit for long positions</small>
-            </div>
-
-            <div class="form-group">
-                <label for="sl_long_pct">SL Long (%)</label>
-                <input type="number" id="sl_long_pct" name="sl_long_pct" value="{{ config.get('sl_long_pct', 2.0) }}" step="0.1" min="0">
-                <small class="help-text">Stop loss for long positions</small>
-            </div>
-        </div>
-
-        <div class="form-row">
-            <div class="form-group">
-                <label for="tp_short_pct">TP Short (%)</label>
-                <input type="number" id="tp_short_pct" name="tp_short_pct" value="{{ config.get('tp_short_pct', 2.0) }}" step="0.1" min="0">
-                <small class="help-text">Take profit for short positions</small>
-            </div>
-
-            <div class="form-group">
-                <label for="sl_short_pct">SL Short (%)</label>
-                <input type="number" id="sl_short_pct" name="sl_short_pct" value="{{ config.get('sl_short_pct', 2.0) }}" step="0.1" min="0">
-                <small class="help-text">Stop loss for short positions</small>
-            </div>
-        </div>
-
         <div class="form-group">
             <label>
-                <input type="checkbox" name="use_tp_sl" {% if config.get('use_tp_sl', False) %}checked{% endif %}>
+                <input type="checkbox" name="use_tp_sl" id="use_tp_sl" {% if config.get('use_tp_sl', False) %}checked{% endif %}>
                 Enable TP/SL
             </label>
             <small class="help-text">Automatically close positions at take profit or stop loss levels</small>
+        </div>
+
+        <div id="tp_sl_settings" style="display: {% if config.get('use_tp_sl', False) %}block{% else %}none{% endif %};">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="tp_long_pct">TP Long (%)</label>
+                    <input type="number" id="tp_long_pct" name="tp_long_pct" value="{{ config.get('tp_long_pct', 2.0) }}" step="0.1" min="0">
+                    <small class="help-text">Take profit for long positions</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="sl_long_pct">SL Long (%)</label>
+                    <input type="number" id="sl_long_pct" name="sl_long_pct" value="{{ config.get('sl_long_pct', 2.0) }}" step="0.1" min="0">
+                    <small class="help-text">Stop loss for long positions</small>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="tp_short_pct">TP Short (%)</label>
+                    <input type="number" id="tp_short_pct" name="tp_short_pct" value="{{ config.get('tp_short_pct', 2.0) }}" step="0.1" min="0">
+                    <small class="help-text">Take profit for short positions</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="sl_short_pct">SL Short (%)</label>
+                    <input type="number" id="sl_short_pct" name="sl_short_pct" value="{{ config.get('sl_short_pct', 2.0) }}" step="0.1" min="0">
+                    <small class="help-text">Stop loss for short positions</small>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -245,33 +247,43 @@
         </div>
 
         <script>
-            // Show/hide time filter settings based on checkbox
+            // Show/hide settings based on checkboxes
             (function() {
-                function toggleTimeFilterSettings() {
-                    const checkbox = document.getElementById('time_filter_enabled');
-                    const settings = document.getElementById('time_filter_settings');
-                    if (checkbox && settings) {
-                        settings.style.display = checkbox.checked ? 'flex' : 'none';
+                // Generic function to toggle settings visibility
+                function setupCheckboxToggle(checkboxId, settingsId, displayStyle) {
+                    displayStyle = displayStyle || 'flex';
+
+                    function toggle() {
+                        const checkbox = document.getElementById(checkboxId);
+                        const settings = document.getElementById(settingsId);
+                        if (checkbox && settings) {
+                            settings.style.display = checkbox.checked ? displayStyle : 'none';
+                        }
+                    }
+
+                    // Add event listener when DOM is ready
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', function() {
+                            toggle();
+                            const checkbox = document.getElementById(checkboxId);
+                            if (checkbox) {
+                                checkbox.addEventListener('change', toggle);
+                            }
+                        });
+                    } else {
+                        // DOM already loaded
+                        toggle();
+                        const checkbox = document.getElementById(checkboxId);
+                        if (checkbox) {
+                            checkbox.addEventListener('change', toggle);
+                        }
                     }
                 }
 
-                // Add event listener when DOM is ready
-                if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', function() {
-                        toggleTimeFilterSettings();
-                        const checkbox = document.getElementById('time_filter_enabled');
-                        if (checkbox) {
-                            checkbox.addEventListener('change', toggleTimeFilterSettings);
-                        }
-                    });
-                } else {
-                    // DOM already loaded
-                    toggleTimeFilterSettings();
-                    const checkbox = document.getElementById('time_filter_enabled');
-                    if (checkbox) {
-                        checkbox.addEventListener('change', toggleTimeFilterSettings);
-                    }
-                }
+                // Setup all checkbox toggles
+                setupCheckboxToggle('time_filter_enabled', 'time_filter_settings', 'flex');
+                setupCheckboxToggle('use_martingale', 'martingale_settings', 'flex');
+                setupCheckboxToggle('use_tp_sl', 'tp_sl_settings', 'block');
             })();
         </script>
     </div>
@@ -374,7 +386,15 @@
         // Validate TP/SL values when enabled
         function validateTPSL() {
             const use_tp_sl = document.querySelector('input[name="use_tp_sl"]').checked;
-            if (!use_tp_sl) return true;
+
+            // Clear all validation errors if checkbox is disabled
+            if (!use_tp_sl) {
+                ['tp_long_pct', 'sl_long_pct', 'tp_short_pct', 'sl_short_pct'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.setCustomValidity('');
+                });
+                return true;
+            }
 
             const tp_long = parseFloat(document.getElementById('tp_long_pct').value) || 0;
             const sl_long = parseFloat(document.getElementById('sl_long_pct').value) || 0;
