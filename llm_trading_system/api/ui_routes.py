@@ -829,11 +829,17 @@ async def ui_run_backtest(
             slippage_bps=slippage_bps,
         )
 
-        # Cache backtest results for chart endpoint
+        # Cache backtest results for chart endpoint and recalculation
         _backtest_cache[name] = {
             "summary": summary,
             "data_path": data_path,
             "config": config,
+            "initial_equity": initial_equity,
+            "fee_rate": fee_rate,
+            "slippage_bps": slippage_bps,
+            "use_llm": use_llm,
+            "llm_model": llm_model if use_llm else None,
+            "llm_url": llm_url if use_llm else None,
         }
 
         # Get live trading enabled from AppConfig
@@ -1525,6 +1531,14 @@ async def ui_recalculate_backtest(
         data_path = cached_data["data_path"]
         old_summary = cached_data["summary"]
 
+        # Get original backtest parameters from cache
+        cached_initial_equity = cached_data.get("initial_equity", 10000.0)
+        cached_fee_rate = cached_data.get("fee_rate", 0.001)
+        cached_slippage_bps = cached_data.get("slippage_bps", 1.0)
+        cached_use_llm = cached_data.get("use_llm", False)
+        cached_llm_model = cached_data.get("llm_model")
+        cached_llm_url = cached_data.get("llm_url")
+
         # Load base config and merge with new parameters
         config = storage.load_config(name)
 
@@ -1629,23 +1643,29 @@ async def ui_recalculate_backtest(
         if base_position_pct <= 0 or base_position_pct > 100:
             raise HTTPException(status_code=400, detail=f"Base Position % must be between 0 and 100, got {base_position_pct}")
 
-        # Run backtest with new parameters
+        # Run backtest with new parameters (using same settings as original backtest)
         summary = run_backtest_from_config_dict(
             config=config,
             data_path=data_path,
-            use_llm=False,  # Don't use LLM for recalculation by default
-            llm_model=None,
-            llm_url=None,
-            initial_equity=old_summary.get("initial_equity", 10000.0),
-            fee_rate=0.001,
-            slippage_bps=1.0,
+            use_llm=cached_use_llm,
+            llm_model=cached_llm_model,
+            llm_url=cached_llm_url,
+            initial_equity=cached_initial_equity,
+            fee_rate=cached_fee_rate,
+            slippage_bps=cached_slippage_bps,
         )
 
-        # Update cache with new results
+        # Update cache with new results (preserve original backtest parameters)
         _backtest_cache[name] = {
             "summary": summary,
             "data_path": data_path,
             "config": config,
+            "initial_equity": cached_initial_equity,
+            "fee_rate": cached_fee_rate,
+            "slippage_bps": cached_slippage_bps,
+            "use_llm": cached_use_llm,
+            "llm_model": cached_llm_model,
+            "llm_url": cached_llm_url,
         }
 
         # Return new summary (serialize Trade objects for JSON)
