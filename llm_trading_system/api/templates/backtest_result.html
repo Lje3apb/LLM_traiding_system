@@ -917,10 +917,6 @@
                             <input type="number" id="param_pyramiding" name="pyramiding" min="1" step="1">
                         </div>
                         <div class="param-group">
-                            <label for="param_martingale_mult">Martingale Multiplier</label>
-                            <input type="number" id="param_martingale_mult" name="martingale_mult" min="1" step="0.1">
-                        </div>
-                        <div class="param-group">
                             <label>
                                 <input type="checkbox" id="param_allow_long" name="allow_long">
                                 Allow Long
@@ -938,6 +934,10 @@
                                 Use Martingale
                             </label>
                         </div>
+                        <div class="param-group" id="param_martingale_settings" style="display: none;">
+                            <label for="param_martingale_mult">Martingale Multiplier</label>
+                            <input type="number" id="param_martingale_mult" name="martingale_mult" min="1" step="0.1">
+                        </div>
                     </div>
                 </div>
 
@@ -951,21 +951,25 @@
                                 Use TP/SL
                             </label>
                         </div>
-                        <div class="param-group">
-                            <label for="param_tp_long_pct">TP Long %</label>
-                            <input type="number" id="param_tp_long_pct" name="tp_long_pct" min="0" step="0.1">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_sl_long_pct">SL Long %</label>
-                            <input type="number" id="param_sl_long_pct" name="sl_long_pct" min="0" step="0.1">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_tp_short_pct">TP Short %</label>
-                            <input type="number" id="param_tp_short_pct" name="tp_short_pct" min="0" step="0.1">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_sl_short_pct">SL Short %</label>
-                            <input type="number" id="param_sl_short_pct" name="sl_short_pct" min="0" step="0.1">
+                        <div id="param_tp_sl_settings" style="display: none; grid-column: 1 / -1;">
+                            <div class="param-grid">
+                                <div class="param-group">
+                                    <label for="param_tp_long_pct">TP Long %</label>
+                                    <input type="number" id="param_tp_long_pct" name="tp_long_pct" min="0" step="0.1">
+                                </div>
+                                <div class="param-group">
+                                    <label for="param_sl_long_pct">SL Long %</label>
+                                    <input type="number" id="param_sl_long_pct" name="sl_long_pct" min="0" step="0.1">
+                                </div>
+                                <div class="param-group">
+                                    <label for="param_tp_short_pct">TP Short %</label>
+                                    <input type="number" id="param_tp_short_pct" name="tp_short_pct" min="0" step="0.1">
+                                </div>
+                                <div class="param-group">
+                                    <label for="param_sl_short_pct">SL Short %</label>
+                                    <input type="number" id="param_sl_short_pct" name="sl_short_pct" min="0" step="0.1">
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -980,13 +984,17 @@
                                 Enable Time Filter
                             </label>
                         </div>
-                        <div class="param-group">
-                            <label for="param_time_filter_start_hour">Start Hour (UTC)</label>
-                            <input type="number" id="param_time_filter_start_hour" name="time_filter_start_hour" min="0" max="23" step="1">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_time_filter_end_hour">End Hour (UTC)</label>
-                            <input type="number" id="param_time_filter_end_hour" name="time_filter_end_hour" min="0" max="23" step="1">
+                        <div id="param_time_filter_settings" style="display: none; grid-column: 1 / -1;">
+                            <div class="param-grid">
+                                <div class="param-group">
+                                    <label for="param_time_filter_start_hour">Start Hour (UTC)</label>
+                                    <input type="number" id="param_time_filter_start_hour" name="time_filter_start_hour" min="0" max="23" step="1">
+                                </div>
+                                <div class="param-group">
+                                    <label for="param_time_filter_end_hour">End Hour (UTC)</label>
+                                    <input type="number" id="param_time_filter_end_hour" name="time_filter_end_hour" min="0" max="23" step="1">
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1660,6 +1668,9 @@
 
         // Trading Rules
         document.getElementById('param_rules').value = JSON.stringify(params.rules || {}, null, 2);
+
+        // Update visibility based on checkbox states
+        toggleModalCheckboxSettings();
     }
 
     // Collect form parameters
@@ -1669,6 +1680,35 @@
 
         const params = {};
 
+        // Default values for numeric fields
+        const defaults = {
+            'base_position_pct': 10.0,
+            'pyramiding': 1,
+            'martingale_mult': 1.5,
+            'tp_long_pct': 2.0,
+            'sl_long_pct': 2.0,
+            'tp_short_pct': 2.0,
+            'sl_short_pct': 2.0,
+            'time_filter_start_hour': 0,
+            'time_filter_end_hour': 23,
+            'ema_fast_len': 10,
+            'ema_slow_len': 50,
+            'rsi_len': 14,
+            'rsi_ovb': 70,
+            'rsi_ovs': 30,
+            'bb_len': 20,
+            'bb_mult': 2.0,
+            'atr_len': 14,
+            'adx_len': 14,
+            'vol_ma_len': 21,
+            'vol_mult': 1.5,
+            'max_martingale_step': 3,
+            'k_max': 2.0,
+            'k_min': 0.5,
+            'base_size': 0.1,
+            'max_position_size': 0.3
+        };
+
         // Get all form fields
         for (const [key, value] of formData.entries()) {
             const element = form.elements[key];
@@ -1676,7 +1716,9 @@
             if (element.type === 'checkbox') {
                 params[key] = element.checked;
             } else if (element.type === 'number') {
-                params[key] = parseFloat(value) || 0;
+                const parsedValue = parseFloat(value);
+                // Use default value if parsing fails or value is empty
+                params[key] = isNaN(parsedValue) ? (defaults[key] || 0) : parsedValue;
             } else {
                 params[key] = value;
             }
@@ -1705,6 +1747,35 @@
             modalStatus.classList.add(type);
         }
     }
+
+    // Toggle visibility of settings based on checkbox state
+    function toggleModalCheckboxSettings() {
+        // Martingale settings
+        const useMartingale = document.getElementById('param_use_martingale').checked;
+        const martingaleSettings = document.getElementById('param_martingale_settings');
+        if (martingaleSettings) {
+            martingaleSettings.style.display = useMartingale ? 'block' : 'none';
+        }
+
+        // TP/SL settings
+        const useTpSl = document.getElementById('param_use_tp_sl').checked;
+        const tpSlSettings = document.getElementById('param_tp_sl_settings');
+        if (tpSlSettings) {
+            tpSlSettings.style.display = useTpSl ? 'block' : 'none';
+        }
+
+        // Time Filter settings
+        const timeFilterEnabled = document.getElementById('param_time_filter_enabled').checked;
+        const timeFilterSettings = document.getElementById('param_time_filter_settings');
+        if (timeFilterSettings) {
+            timeFilterSettings.style.display = timeFilterEnabled ? 'block' : 'none';
+        }
+    }
+
+    // Add event listeners for checkbox changes
+    document.getElementById('param_use_martingale').addEventListener('change', toggleModalCheckboxSettings);
+    document.getElementById('param_use_tp_sl').addEventListener('change', toggleModalCheckboxSettings);
+    document.getElementById('param_time_filter_enabled').addEventListener('change', toggleModalCheckboxSettings);
 
     // Recalculate backtest with new parameters
     recalculateBtn.addEventListener('click', async () => {
