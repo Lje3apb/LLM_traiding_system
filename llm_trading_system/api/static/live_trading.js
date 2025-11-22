@@ -560,7 +560,8 @@ function disconnectWebSocket() {
 function handleWebSocketMessage(message) {
     switch (message.type) {
         case 'state_update':
-            updateSessionDisplay({ last_state: message.payload });
+            // message.payload contains full status object with last_state inside
+            updateSessionDisplay(message.payload);
             break;
         case 'trade':
             handleNewTrade(message.payload);

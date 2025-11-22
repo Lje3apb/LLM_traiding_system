@@ -605,14 +605,12 @@ class LiveSession:
     def _serialize_trade_snapshot(self, trade: TradeSnapshot) -> dict[str, Any]:
         """Serialize TradeSnapshot with datetime conversion."""
         return {
-            "open_time": trade.open_time.isoformat(),
-            "close_time": trade.close_time.isoformat() if trade.close_time else None,
+            "id": trade.id,
+            "timestamp": trade.timestamp.isoformat(),
             "side": trade.side,
-            "size": trade.size,
-            "entry_price": trade.entry_price,
-            "exit_price": trade.exit_price,
+            "quantity": trade.quantity,
+            "price": trade.price,
             "pnl": trade.pnl,
-            "pnl_percent": trade.pnl_percent,
         }
 
     def _trade_to_dict(self, trade: Trade, index: int) -> dict[str, Any]:
