@@ -1507,6 +1507,13 @@ async def ui_recalculate_backtest(
         # Get parameters from body
         params = body.get("params", {})
 
+        # Debug: Log received parameters
+        logger.info(f"=== RECALCULATE: Received parameters for {name} ===")
+        logger.info(f"use_martingale: {params.get('use_martingale')}")
+        logger.info(f"martingale_mult: {params.get('martingale_mult')}")
+        logger.info(f"use_tp_sl: {params.get('use_tp_sl')}")
+        logger.info(f"====================================================")
+
         # Get last backtest data path from cache
         if name not in _backtest_cache:
             raise HTTPException(
@@ -1559,6 +1566,12 @@ async def ui_recalculate_backtest(
             "time_filter_start_hour": int(params.get("time_filter_start_hour", config.get("time_filter_start_hour", 0))),
             "time_filter_end_hour": int(params.get("time_filter_end_hour", config.get("time_filter_end_hour", 23))),
         })
+
+        # Debug: Log updated config
+        logger.info(f"=== RECALCULATE: Updated config ===")
+        logger.info(f"use_martingale: {config.get('use_martingale')}")
+        logger.info(f"martingale_mult: {config.get('martingale_mult')}")
+        logger.info(f"====================================")
 
         # Validate strategy parameters before running backtest
         # RSI thresholds

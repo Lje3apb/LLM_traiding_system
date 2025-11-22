@@ -1790,6 +1790,14 @@
             // Collect parameters
             const params = collectFormParams();
 
+            // Debug: Log all parameters being sent
+            console.log('=== RECALCULATE: Sending parameters ===');
+            console.log('use_martingale:', params.use_martingale);
+            console.log('martingale_mult:', params.martingale_mult);
+            console.log('use_tp_sl:', params.use_tp_sl);
+            console.log('Full params:', JSON.stringify(params, null, 2));
+            console.log('=======================================');
+
             // Disable buttons
             recalculateBtn.disabled = true;
             saveParamsBtn.disabled = true;
