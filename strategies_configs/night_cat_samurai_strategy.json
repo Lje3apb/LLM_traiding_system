@@ -2,57 +2,105 @@
   "strategy_type": "indicator",
   "mode": "quant_only",
   "symbol": "ETHUSDT",
-
   "allow_long": true,
   "allow_short": true,
-
   "base_position_pct": 10.0,
   "pyramiding": 4,
   "use_martingale": true,
   "martingale_mult": 1.5,
-
   "tp_long_pct": 2.0,
   "sl_long_pct": 2.0,
   "tp_short_pct": 2.0,
   "sl_short_pct": 2.0,
   "use_tp_sl": true,
-
   "rsi_len": 14,
   "rsi_ovs": 22,
-  "rsi_ovb": 80,
-
+  "rsi_ovb": 63,
   "bb_len": 20,
   "bb_mult": 2.0,
   "vol_ma_len": 21,
   "vol_mult": 0.5,
-
   "time_filter_enabled": true,
   "time_filter_start_hour": 0,
   "time_filter_end_hour": 7,
-
   "rules": {
     "long_entry": [
-      {"left": "hour", "op": ">=", "right": "time_filter_start_hour"},
-      {"left": "hour", "op": "<=", "right": "time_filter_end_hour"},
-      {"left": "rsi",  "op": "<",  "right": "rsi_ovs"},
-      {"left": "low",  "op": "<=", "right": "lower_bb"},
-      {"left": "volume", "op": ">", "right": "vol_threshold"}
+      {
+        "left": "hour",
+        "op": ">=",
+        "right": "time_filter_start_hour"
+      },
+      {
+        "left": "hour",
+        "op": "<=",
+        "right": "time_filter_end_hour"
+      },
+      {
+        "left": "rsi",
+        "op": "<",
+        "right": "rsi_ovs"
+      },
+      {
+        "left": "low",
+        "op": "<=",
+        "right": "lower_bb"
+      },
+      {
+        "left": "volume",
+        "op": ">",
+        "right": "vol_threshold"
+      }
     ],
-
     "short_entry": [
-      {"left": "hour", "op": ">=", "right": "time_filter_start_hour"},
-      {"left": "hour", "op": "<=", "right": "time_filter_end_hour"},
-      {"left": "rsi",  "op": ">",  "right": "rsi_ovb"},
-      {"left": "high", "op": ">=", "right": "upper_bb"},
-      {"left": "volume", "op": ">", "right": "vol_threshold"}
+      {
+        "left": "hour",
+        "op": ">=",
+        "right": "time_filter_start_hour"
+      },
+      {
+        "left": "hour",
+        "op": "<=",
+        "right": "time_filter_end_hour"
+      },
+      {
+        "left": "rsi",
+        "op": ">",
+        "right": "rsi_ovb"
+      },
+      {
+        "left": "high",
+        "op": ">=",
+        "right": "upper_bb"
+      },
+      {
+        "left": "volume",
+        "op": ">",
+        "right": "vol_threshold"
+      }
     ],
-
     "long_exit": [
-      {"left": "rsi", "op": ">", "right": "rsi_ovb"}
+      {
+        "left": "rsi",
+        "op": ">",
+        "right": "rsi_ovb"
+      }
     ],
-
     "short_exit": [
-      {"left": "rsi", "op": "<", "right": "rsi_ovs"}
+      {
+        "left": "rsi",
+        "op": "<",
+        "right": "rsi_ovs"
+      }
     ]
-  }
+  },
+  "k_max": 2.0,
+  "llm_horizon_hours": 24,
+  "llm_min_prob_edge": 0.55,
+  "llm_min_trend_strength": 0.6,
+  "llm_refresh_interval_bars": 60,
+  "ema_fast_len": 12,
+  "ema_slow_len": 26,
+  "atr_len": 14,
+  "adx_len": 14,
+  "base_size": 0.1
 }
