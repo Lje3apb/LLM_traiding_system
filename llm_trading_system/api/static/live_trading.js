@@ -899,6 +899,23 @@ function initializeChart() {
         rightPriceScale: {
             borderColor: '#e0e0e0',
         },
+        handleScroll: {
+            // Disable left-click drag scrolling to avoid unwanted zoom/pan near chart edges
+            pressedMouseMove: false,
+            mouseWheel: true,
+            horzTouchDrag: true,
+            vertTouchDrag: true,
+        },
+        handleScale: {
+            mouseWheel: true,
+            pinch: true,
+            axisDoubleClickReset: true,
+            // Prevent scale adjustments when dragging inside the chart area or over axes with left click
+            axisPressedMouseMove: {
+                time: false,
+                price: false,
+            },
+        },
         timeScale: {
             borderColor: '#e0e0e0',
             timeVisible: true,

@@ -204,6 +204,10 @@ class LiveTradingEngine:
                 logger.warning(f"Failed to create price feed client: {e}. Will use fallback.")
                 self._price_feed_client = None
 
+        # Track volume deltas from the price feed so volume bars update correctly
+        self._last_feed_bar_start: datetime | None = None
+        self._last_feed_volume: float = 0.0
+
         logger.info(
             f"LiveTradingEngine initialized: symbol={symbol}, "
             f"timeframe={timeframe}, poll_interval={poll_interval_sec}s"
@@ -221,11 +225,32 @@ class LiveTradingEngine:
         try:
             # For paper trading: Get real price from price feed and update market data
             from llm_trading_system.exchange.paper import PaperExchangeClient
+
+            volume_increment = 0.0
+            timestamp = None
+
             if isinstance(self.exchange, PaperExchangeClient):
                 if self._price_feed_client:
-                    # Get real price from Binance
+                    # Get full bar data from Binance to include real volume
                     try:
-                        price = self._price_feed_client.get_latest_price(self.symbol)
+                        latest_bar = self._price_feed_client.get_latest_bar(
+                            self.symbol, self.timeframe
+                        )
+                        price = latest_bar.close
+
+                        # Compute incremental volume for the current bar
+                        bar_start = self.bar_aggregator._get_bar_start_time(latest_bar.timestamp)
+                        if self._last_feed_bar_start == bar_start:
+                            volume_increment = max(
+                                latest_bar.volume - self._last_feed_volume, 0.0
+                            )
+                        else:
+                            volume_increment = latest_bar.volume
+
+                        self._last_feed_bar_start = bar_start
+                        self._last_feed_volume = latest_bar.volume
+
+                        timestamp = latest_bar.timestamp
                     except Exception as e:
                         logger.error(f"Failed to get price from feed: {e}")
                         # Fallback: Use a synthetic price if feed fails
@@ -240,14 +265,16 @@ class LiveTradingEngine:
                     price = self._last_price
 
                 # Create bar and update paper exchange market data
-                timestamp = datetime.now(timezone.utc)
+                if timestamp is None:
+                    timestamp = datetime.now(timezone.utc)
+
                 bar = Bar(
                     timestamp=timestamp,
                     open=price,
                     high=price,
                     low=price,
                     close=price,
-                    volume=0.0
+                    volume=volume_increment,
                 )
                 self.exchange.update_market_data(bar)
 
@@ -257,12 +284,17 @@ class LiveTradingEngine:
                 # Real trading: Get price directly from exchange
                 price = self.exchange.get_latest_price(self.symbol)
 
-            timestamp = datetime.now(timezone.utc)
+            # Keep track of last observed price for synthetic fallbacks
+            self._last_price = price
+
+            # If timestamp was not set by price feed, use current time
+            if timestamp is None:
+                timestamp = datetime.now(timezone.utc)
 
             logger.debug(f"Polled price: {price} at {timestamp}")
 
             # Add price to bar aggregator
-            completed_bar = self.bar_aggregator.add_price(price, timestamp)
+            completed_bar = self.bar_aggregator.add_price(price, timestamp, volume_increment)
 
             # If we completed a bar, process it
             if completed_bar is not None:
