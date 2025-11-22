@@ -1478,7 +1478,7 @@ async def ui_get_strategy_params(request: Request, name: str, user=Depends(requi
 
 
 @router.post("/ui/strategies/{name}/recalculate")
-@limiter.limit("10/minute;100/day")  # HEAVY OPERATION: Recalculate backtest
+@limiter.limit("60/minute;1000/day")  # Interactive parameter tuning - allow frequent recalculations
 async def ui_recalculate_backtest(
     request: Request,
     name: str,
