@@ -904,23 +904,19 @@ function initializeChart() {
             secondsVisible: false,
         },
         handleScale: {
-            mouseWheel: true,       // Allow zoom with mouse wheel
-            pinch: true,            // Allow pinch zoom on touch devices
-            axisPressedMouseMove: false,  // DISABLE zoom when dragging axis (causes issues)
-            axisDoubleClickReset: {
-                time: true,
-                price: true,
-            },
+            mouseWheel: true,           // Zoom with mouse wheel
+            pinch: true,                // Pinch zoom on touch
+            axisPressedMouseMove: false, // Disable zoom by dragging time/price axis
         },
         handleScroll: {
-            mouseWheel: true,       // Allow scroll with mouse wheel
-            pressedMouseMove: false, // DISABLE drag pan with left mouse button
-            horzTouchDrag: true,    // Allow horizontal touch drag on mobile
-            vertTouchDrag: false,   // Disable vertical touch drag
+            mouseWheel: true,           // Scroll with mouse wheel
+            pressedMouseMove: false,    // Disable pan by dragging chart area
+            horzTouchDrag: true,        // Allow horizontal touch drag
+            vertTouchDrag: true,        // Allow vertical touch drag
         },
         kineticScroll: {
-            mouse: false,           // DISABLE kinetic scroll on mouse drag
-            touch: false,           // DISABLE kinetic scroll for touch (causes zoom)
+            mouse: false,               // Disable momentum scrolling on mouse
+            touch: true,                // Keep momentum scrolling for touch
         },
     };
 
@@ -955,23 +951,6 @@ function initializeChart() {
             type: 'volume',
         },
     });
-
-    // ========================================================================
-    // Disable mouse drag interactions (prevent unwanted pan/zoom)
-    // ========================================================================
-    // Block mousedown events on chart canvas to prevent drag behavior
-    const disableMouseDrag = (canvas) => {
-        canvas.addEventListener('mousedown', (e) => {
-            // Allow mouse wheel for zoom, but prevent drag
-            if (e.button === 0) {  // Left mouse button
-                e.preventDefault();
-                e.stopPropagation();
-            }
-        }, { capture: true, passive: false });
-    };
-
-    disableMouseDrag(priceCanvas);
-    disableMouseDrag(volumeCanvas);
 
     // ========================================================================
     // Synchronize time scales between price and volume charts
