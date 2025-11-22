@@ -199,6 +199,12 @@ class IndicatorStrategy(Strategy):
         if bar:
             indicators["hour"] = float(bar.timestamp.hour)
 
+        # Add config parameters to indicators dict (so they can be used in rules)
+        indicators["rsi_ovs"] = float(self.config.rsi_ovs)
+        indicators["rsi_ovb"] = float(self.config.rsi_ovb)
+        indicators["time_filter_start_hour"] = float(self.config.time_filter_start_hour)
+        indicators["time_filter_end_hour"] = float(self.config.time_filter_end_hour)
+
         return indicators
 
     def _generate_order(
