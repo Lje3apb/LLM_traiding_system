@@ -40,11 +40,6 @@
         </div>
 
         <div class="form-group">
-            <label for="base_size">Base Size</label>
-            <input type="number" id="base_size" name="base_size" value="{{ config.get('base_size', 0.1) }}" step="0.01" min="0" required>
-        </div>
-
-        <div class="form-group">
             <label>
                 <input type="checkbox" name="allow_long" {% if config.get('allow_long', True) %}checked{% endif %}>
                 Allow Long
@@ -165,6 +160,12 @@
                 <label for="martingale_mult">Martingale Multiplier</label>
                 <input type="number" id="martingale_mult" name="martingale_mult" value="{{ config.get('martingale_mult', 1.5) }}" step="0.1" min="1.0">
                 <small class="help-text">Multiplier for martingale sizing (e.g., 1.5 means 1, 1.5, 2.25...)</small>
+            </div>
+
+            <div class="form-group">
+                <label for="max_position_size">Max Position Size (fraction)</label>
+                <input type="number" id="max_position_size" name="max_position_size" value="{{ config.get('max_position_size', 0.25) }}" step="0.01" min="0.01" max="1.0">
+                <small class="help-text">Maximum position size as fraction of equity (0.25 = 25%, critical for martingale)</small>
             </div>
         </div>
 

@@ -905,10 +905,6 @@
                     <h4>Position & Risk Management</h4>
                     <div class="param-grid">
                         <div class="param-group">
-                            <label for="param_base_size">Base Size</label>
-                            <input type="number" id="param_base_size" name="base_size" min="0" max="1" step="0.01">
-                        </div>
-                        <div class="param-group">
                             <label for="param_base_position_pct">Base Position %</label>
                             <input type="number" id="param_base_position_pct" name="base_position_pct" min="0" max="100" step="0.1">
                         </div>
@@ -934,9 +930,15 @@
                                 Use Martingale
                             </label>
                         </div>
-                        <div class="param-group" id="param_martingale_settings" style="display: none;">
-                            <label for="param_martingale_mult">Martingale Multiplier</label>
-                            <input type="number" id="param_martingale_mult" name="martingale_mult" min="1" step="0.1">
+                        <div id="param_martingale_settings" style="display: none;">
+                            <div class="param-group">
+                                <label for="param_martingale_mult">Martingale Multiplier</label>
+                                <input type="number" id="param_martingale_mult" name="martingale_mult" min="1" step="0.1">
+                            </div>
+                            <div class="param-group">
+                                <label for="param_max_position_size">Max Position Size</label>
+                                <input type="number" id="param_max_position_size" name="max_position_size" min="0.01" max="1.0" step="0.01">
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1639,10 +1641,10 @@
         document.getElementById('param_vol_mult').value = params.vol_mult || 0.5;
 
         // Position & Risk Management
-        document.getElementById('param_base_size').value = params.base_size || 0.1;
         document.getElementById('param_base_position_pct').value = params.base_position_pct || 10.0;
         document.getElementById('param_pyramiding').value = params.pyramiding || 1;
         document.getElementById('param_martingale_mult').value = params.martingale_mult || 1.5;
+        document.getElementById('param_max_position_size').value = params.max_position_size || 0.25;
         document.getElementById('param_allow_long').checked = params.allow_long !== false;
         document.getElementById('param_allow_short').checked = params.allow_short !== false;
         document.getElementById('param_use_martingale').checked = params.use_martingale === true;
@@ -1696,7 +1698,6 @@
         params.vol_mult = parseFloat(document.getElementById('param_vol_mult').value) || 0.5;
 
         // Position & Risk Management
-        params.base_size = parseFloat(document.getElementById('param_base_size').value) || 0.1;
         params.base_position_pct = parseFloat(document.getElementById('param_base_position_pct').value) || 10.0;
         params.pyramiding = parseInt(document.getElementById('param_pyramiding').value) || 1;
         params.allow_long = document.getElementById('param_allow_long').checked;
@@ -1705,6 +1706,7 @@
         // Martingale (always read value, even if hidden)
         params.use_martingale = document.getElementById('param_use_martingale').checked;
         params.martingale_mult = parseFloat(document.getElementById('param_martingale_mult').value) || 1.5;
+        params.max_position_size = parseFloat(document.getElementById('param_max_position_size').value) || 0.25;
 
         // TP/SL (always read values, even if hidden)
         params.use_tp_sl = document.getElementById('param_use_tp_sl').checked;
