@@ -6,12 +6,14 @@ state tracking and API integration.
 
 from __future__ import annotations
 
+import csv
 import logging
 import os
 import threading
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Literal
 
 from llm_trading_system.engine.live_trading import LiveTradingEngine, LiveTradingResult
@@ -179,6 +181,12 @@ class LiveSession:
         self._subscribers: list[tuple[Any, Any]] = []  # List of (WebSocket, event_loop)
         self._subscribers_lock = threading.Lock()
 
+        # CSV trade logging
+        self._csv_file_path: Path | None = None
+        self._csv_file_handle = None
+        self._csv_writer = None
+        self._logged_trade_count = 0  # Track number of trades logged
+
         # Setup callbacks to update state
         self.engine.set_callbacks(
             on_new_bar=self._on_new_bar,
@@ -200,6 +208,9 @@ class LiveSession:
             self.status = "running"
             self.start_time = datetime.now(timezone.utc)
             self._update_last_state()
+
+            # Initialize CSV trade logger
+            self._init_csv_logger()
 
             # Start engine in background thread
             self._thread = threading.Thread(
@@ -291,6 +302,9 @@ class LiveSession:
             with self._lock:
                 self._bar_history.clear()
                 logger.debug(f"Cleared bar history for session {self.session_id}")
+
+            # Close CSV trade logger
+            self._close_csv_logger()
 
         except Exception as e:
             logger.error(f"Error during resource cleanup: {e}", exc_info=True)
@@ -555,9 +569,12 @@ class LiveSession:
         with self._lock:
             self._update_last_state()
 
-            # Get the most recent trade for broadcasting
+            # Get the most recent trade for broadcasting and logging
             if self.portfolio.closed_trades:
                 last_trade = self.portfolio.closed_trades[-1]
+
+                # Log trade to CSV file
+                self._log_trade_to_csv(last_trade)
 
                 # Broadcast trade event to WebSocket subscribers (non-blocking)
                 if self._subscribers:
@@ -576,6 +593,120 @@ class LiveSession:
             self.status = "error"
             self.error_message = str(error)
             self._update_last_state()
+
+    def _init_csv_logger(self) -> None:
+        """Initialize CSV file for logging trades.
+
+        Creates a CSV file with format: {symbol}_{timeframe}_{start_datetime}.csv
+        in results/paper or results/live directory depending on mode.
+        """
+        try:
+            # Determine output directory based on mode
+            mode_dir = "paper" if self.config.mode == "paper" else "live"
+            results_dir = Path("results") / mode_dir
+            results_dir.mkdir(parents=True, exist_ok=True)
+
+            # Format start time for filename
+            start_time_str = self.start_time.strftime("%Y%m%d_%H%M%S") if self.start_time else "unknown"
+
+            # Create filename: symbol_timeframe_starttime.csv
+            filename = f"{self.config.symbol}_{self.config.timeframe}_{start_time_str}.csv"
+            self._csv_file_path = results_dir / filename
+
+            # Open CSV file for writing
+            self._csv_file_handle = open(self._csv_file_path, 'w', newline='', encoding='utf-8')
+            self._csv_writer = csv.writer(self._csv_file_handle)
+
+            # Write CSV header
+            self._csv_writer.writerow([
+                'trade_id',
+                'open_time',
+                'close_time',
+                'side',
+                'entry_price',
+                'exit_price',
+                'size',
+                'pnl',
+                'session_id'
+            ])
+            self._csv_file_handle.flush()
+
+            logger.info(f"Initialized CSV trade logger: {self._csv_file_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to initialize CSV logger: {e}", exc_info=True)
+            # Don't fail session start if CSV logging fails
+            self._csv_file_path = None
+            self._csv_file_handle = None
+            self._csv_writer = None
+
+    def _log_trade_to_csv(self, trade: Trade) -> None:
+        """Log a completed trade to the CSV file.
+
+        Args:
+            trade: The completed trade to log
+        """
+        if not self._csv_writer or not self._csv_file_handle:
+            return
+
+        try:
+            self._logged_trade_count += 1
+
+            # Write trade row
+            self._csv_writer.writerow([
+                self._logged_trade_count,
+                trade.open_time.isoformat() if trade.open_time else '',
+                trade.close_time.isoformat() if trade.close_time else '',
+                trade.side,
+                f"{trade.entry_price:.8f}" if trade.entry_price else '',
+                f"{trade.exit_price:.8f}" if trade.exit_price else '',
+                f"{trade.size:.8f}",
+                f"{trade.pnl:.8f}" if trade.pnl is not None else '',
+                self.session_id
+            ])
+
+            # Flush to ensure data is written immediately
+            self._csv_file_handle.flush()
+
+            logger.debug(f"Logged trade #{self._logged_trade_count} to CSV: {trade.side} PnL={trade.pnl}")
+
+        except Exception as e:
+            logger.error(f"Failed to log trade to CSV: {e}", exc_info=True)
+
+    def _close_csv_logger(self) -> None:
+        """Close CSV file and rename it to include end datetime.
+
+        Renames file from: {symbol}_{timeframe}_{start}.csv
+        To: {symbol}_{timeframe}_{start}_{end}.csv
+        """
+        if not self._csv_file_handle:
+            return
+
+        try:
+            # Close the file
+            self._csv_file_handle.close()
+            logger.info(f"Closed CSV trade logger. Total trades logged: {self._logged_trade_count}")
+
+            # Rename file to include end datetime
+            if self._csv_file_path and self._csv_file_path.exists():
+                end_time_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+                # Parse original filename
+                parts = self._csv_file_path.stem.split('_')
+                if len(parts) >= 3:
+                    # symbol_timeframe_start → symbol_timeframe_start_end
+                    new_filename = f"{self._csv_file_path.stem}_{end_time_str}.csv"
+                    new_path = self._csv_file_path.parent / new_filename
+
+                    self._csv_file_path.rename(new_path)
+                    logger.info(f"Renamed CSV trade log to: {new_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to close CSV logger: {e}", exc_info=True)
+        finally:
+            self._csv_file_handle = None
+            self._csv_writer = None
+            self._csv_file_path = None
 
     def _serialize_state(self, state: SessionState) -> dict[str, Any]:
         """Serialize SessionState for JSON response."""
