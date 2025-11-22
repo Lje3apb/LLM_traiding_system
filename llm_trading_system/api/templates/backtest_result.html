@@ -1675,54 +1675,55 @@
 
     // Collect form parameters
     function collectFormParams() {
-        const form = document.getElementById('params-form');
-        const formData = new FormData(form);
-
         const params = {};
 
-        // Default values for numeric fields
-        const defaults = {
-            'base_position_pct': 10.0,
-            'pyramiding': 1,
-            'martingale_mult': 1.5,
-            'tp_long_pct': 2.0,
-            'sl_long_pct': 2.0,
-            'tp_short_pct': 2.0,
-            'sl_short_pct': 2.0,
-            'time_filter_start_hour': 0,
-            'time_filter_end_hour': 23,
-            'ema_fast_len': 10,
-            'ema_slow_len': 50,
-            'rsi_len': 14,
-            'rsi_ovb': 70,
-            'rsi_ovs': 30,
-            'bb_len': 20,
-            'bb_mult': 2.0,
-            'atr_len': 14,
-            'adx_len': 14,
-            'vol_ma_len': 21,
-            'vol_mult': 1.5,
-            'max_martingale_step': 3,
-            'k_max': 2.0,
-            'k_min': 0.5,
-            'base_size': 0.1,
-            'max_position_size': 0.3
-        };
+        // Strategy Type & Mode
+        params.strategy_type = document.getElementById('param_strategy_type').value;
+        params.mode = document.getElementById('param_mode').value;
+        params.symbol = document.getElementById('param_symbol').value;
 
-        // Get all form fields
-        for (const [key, value] of formData.entries()) {
-            const element = form.elements[key];
+        // Indicator Parameters
+        params.rsi_len = parseInt(document.getElementById('param_rsi_len').value) || 14;
+        params.rsi_ovb = parseInt(document.getElementById('param_rsi_ovb').value) || 70;
+        params.rsi_ovs = parseInt(document.getElementById('param_rsi_ovs').value) || 30;
+        params.bb_len = parseInt(document.getElementById('param_bb_len').value) || 20;
+        params.bb_mult = parseFloat(document.getElementById('param_bb_mult').value) || 2.0;
+        params.ema_fast_len = parseInt(document.getElementById('param_ema_fast_len').value) || 12;
+        params.ema_slow_len = parseInt(document.getElementById('param_ema_slow_len').value) || 26;
+        params.atr_len = parseInt(document.getElementById('param_atr_len').value) || 14;
+        params.adx_len = parseInt(document.getElementById('param_adx_len').value) || 14;
+        params.vol_ma_len = parseInt(document.getElementById('param_vol_ma_len').value) || 21;
+        params.vol_mult = parseFloat(document.getElementById('param_vol_mult').value) || 0.5;
 
-            if (element.type === 'checkbox') {
-                params[key] = element.checked;
-            } else if (element.type === 'number') {
-                const parsedValue = parseFloat(value);
-                // Use default value if parsing fails or value is empty
-                params[key] = isNaN(parsedValue) ? (defaults[key] || 0) : parsedValue;
-            } else {
-                params[key] = value;
-            }
-        }
+        // Position & Risk Management
+        params.base_size = parseFloat(document.getElementById('param_base_size').value) || 0.1;
+        params.base_position_pct = parseFloat(document.getElementById('param_base_position_pct').value) || 10.0;
+        params.pyramiding = parseInt(document.getElementById('param_pyramiding').value) || 1;
+        params.allow_long = document.getElementById('param_allow_long').checked;
+        params.allow_short = document.getElementById('param_allow_short').checked;
+
+        // Martingale (always read value, even if hidden)
+        params.use_martingale = document.getElementById('param_use_martingale').checked;
+        params.martingale_mult = parseFloat(document.getElementById('param_martingale_mult').value) || 1.5;
+
+        // TP/SL (always read values, even if hidden)
+        params.use_tp_sl = document.getElementById('param_use_tp_sl').checked;
+        params.tp_long_pct = parseFloat(document.getElementById('param_tp_long_pct').value) || 2.0;
+        params.sl_long_pct = parseFloat(document.getElementById('param_sl_long_pct').value) || 2.0;
+        params.tp_short_pct = parseFloat(document.getElementById('param_tp_short_pct').value) || 2.0;
+        params.sl_short_pct = parseFloat(document.getElementById('param_sl_short_pct').value) || 2.0;
+
+        // Time Filter (always read values, even if hidden)
+        params.time_filter_enabled = document.getElementById('param_time_filter_enabled').checked;
+        params.time_filter_start_hour = parseInt(document.getElementById('param_time_filter_start_hour').value) || 0;
+        params.time_filter_end_hour = parseInt(document.getElementById('param_time_filter_end_hour').value) || 23;
+
+        // LLM Parameters
+        params.k_max = parseFloat(document.getElementById('param_k_max').value) || 2.0;
+        params.llm_horizon_hours = parseInt(document.getElementById('param_llm_horizon_hours').value) || 24;
+        params.llm_min_prob_edge = parseFloat(document.getElementById('param_llm_min_prob_edge').value) || 0.55;
+        params.llm_min_trend_strength = parseFloat(document.getElementById('param_llm_min_trend_strength').value) || 0.6;
+        params.llm_refresh_interval_bars = parseInt(document.getElementById('param_llm_refresh_interval_bars').value) || 60;
 
         // Parse rules JSON
         try {
@@ -1735,6 +1736,12 @@
         } catch (e) {
             throw new Error('Invalid JSON in trading rules: ' + e.message);
         }
+
+        // Debug: Log martingale parameters
+        console.log('Collecting params:', {
+            use_martingale: params.use_martingale,
+            martingale_mult: params.martingale_mult
+        });
 
         return params;
     }
