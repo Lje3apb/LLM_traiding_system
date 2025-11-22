@@ -6,6 +6,7 @@
   "allow_long": true,
   "allow_short": true,
   "base_position_pct": 25.0,
+  "max_position_size": 0.8,
   "pyramiding": 4,
   "use_martingale": true,
   "martingale_mult": 1.5,
