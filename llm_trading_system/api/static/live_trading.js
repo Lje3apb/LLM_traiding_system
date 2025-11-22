@@ -904,6 +904,25 @@ function initializeChart() {
             timeVisible: true,
             secondsVisible: false,
         },
+        handleScale: {
+            mouseWheel: true,       // Allow zoom with mouse wheel
+            pinch: true,            // Allow pinch zoom on touch devices
+            axisPressedMouseMove: false,  // DISABLE zoom when dragging axis (causes issues)
+            axisDoubleClickReset: {
+                time: true,
+                price: true,
+            },
+        },
+        handleScroll: {
+            mouseWheel: true,       // Allow scroll with mouse wheel
+            pressedMouseMove: false, // DISABLE drag pan with left mouse button
+            horzTouchDrag: true,    // Allow horizontal touch drag on mobile
+            vertTouchDrag: false,   // Disable vertical touch drag
+        },
+        kineticScroll: {
+            mouse: false,           // DISABLE kinetic scroll on mouse drag
+            touch: false,           // DISABLE kinetic scroll for touch (causes zoom)
+        },
     };
 
     // Create price chart
@@ -937,6 +956,23 @@ function initializeChart() {
             type: 'volume',
         },
     });
+
+    // ========================================================================
+    // Disable mouse drag interactions (prevent unwanted pan/zoom)
+    // ========================================================================
+    // Block mousedown events on chart canvas to prevent drag behavior
+    const disableMouseDrag = (canvas) => {
+        canvas.addEventListener('mousedown', (e) => {
+            // Allow mouse wheel for zoom, but prevent drag
+            if (e.button === 0) {  // Left mouse button
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        }, { capture: true, passive: false });
+    };
+
+    disableMouseDrag(priceCanvas);
+    disableMouseDrag(volumeCanvas);
 
     // ========================================================================
     // Synchronize time scales between price and volume charts
@@ -1109,10 +1145,19 @@ function updateChart(bar) {
     candlestickSeries.update(barData);
 
     // Update volume chart with color based on bar direction
+    const volumeValue = bar.volume || 0;
+    const volumeColor = barData.close >= barData.open ? 'rgba(16, 185, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)';
+
+    console.log('Updating volume chart:', {
+        time: barData.time,
+        volume: volumeValue,
+        color: volumeColor
+    });
+
     volumeSeries.update({
         time: barData.time,
-        value: bar.volume || 0,
-        color: barData.close >= barData.open ? 'rgba(16, 185, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)'
+        value: volumeValue,
+        color: volumeColor
     });
 
     upsertChartBar(barData);
