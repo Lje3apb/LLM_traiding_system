@@ -83,11 +83,13 @@
             <div class="form-group">
                 <label for="rsi_ovb">RSI Overbought</label>
                 <input type="number" id="rsi_ovb" name="rsi_ovb" value="{{ config.get('rsi_ovb', 70) }}" min="0" max="100" required>
+                <small class="help-text" style="color: #6b7280;">Must be greater than RSI Oversold</small>
             </div>
 
             <div class="form-group">
                 <label for="rsi_ovs">RSI Oversold</label>
                 <input type="number" id="rsi_ovs" name="rsi_ovs" value="{{ config.get('rsi_ovs', 30) }}" min="0" max="100" required>
+                <small class="help-text" style="color: #6b7280;">Must be less than RSI Overbought</small>
             </div>
         </div>
 
@@ -344,4 +346,152 @@
         {% endif %}
     </div>
 </form>
+
+<script>
+    // Client-side validation for strategy parameters
+    (function() {
+        const form = document.querySelector('.strategy-form');
+        if (!form) return;
+
+        // Validate RSI thresholds
+        function validateRSI() {
+            const rsi_ovs = parseFloat(document.getElementById('rsi_ovs').value) || 0;
+            const rsi_ovb = parseFloat(document.getElementById('rsi_ovb').value) || 0;
+            const ovs_input = document.getElementById('rsi_ovs');
+            const ovb_input = document.getElementById('rsi_ovb');
+
+            if (rsi_ovs >= rsi_ovb) {
+                ovs_input.setCustomValidity('RSI Oversold must be less than RSI Overbought');
+                ovb_input.setCustomValidity('RSI Overbought must be greater than RSI Oversold');
+                return false;
+            } else {
+                ovs_input.setCustomValidity('');
+                ovb_input.setCustomValidity('');
+                return true;
+            }
+        }
+
+        // Validate TP/SL values when enabled
+        function validateTPSL() {
+            const use_tp_sl = document.querySelector('input[name="use_tp_sl"]').checked;
+            if (!use_tp_sl) return true;
+
+            const tp_long = parseFloat(document.getElementById('tp_long_pct').value) || 0;
+            const sl_long = parseFloat(document.getElementById('sl_long_pct').value) || 0;
+            const tp_short = parseFloat(document.getElementById('tp_short_pct').value) || 0;
+            const sl_short = parseFloat(document.getElementById('sl_short_pct').value) || 0;
+
+            let valid = true;
+
+            if (tp_long <= 0) {
+                document.getElementById('tp_long_pct').setCustomValidity('TP Long % must be greater than 0');
+                valid = false;
+            } else {
+                document.getElementById('tp_long_pct').setCustomValidity('');
+            }
+
+            if (sl_long <= 0) {
+                document.getElementById('sl_long_pct').setCustomValidity('SL Long % must be greater than 0');
+                valid = false;
+            } else {
+                document.getElementById('sl_long_pct').setCustomValidity('');
+            }
+
+            if (tp_short <= 0) {
+                document.getElementById('tp_short_pct').setCustomValidity('TP Short % must be greater than 0');
+                valid = false;
+            } else {
+                document.getElementById('tp_short_pct').setCustomValidity('');
+            }
+
+            if (sl_short <= 0) {
+                document.getElementById('sl_short_pct').setCustomValidity('SL Short % must be greater than 0');
+                valid = false;
+            } else {
+                document.getElementById('sl_short_pct').setCustomValidity('');
+            }
+
+            return valid;
+        }
+
+        // Validate base position percentage
+        function validateBasePosition() {
+            const base_position_pct = parseFloat(document.getElementById('base_position_pct').value) || 0;
+            const input = document.getElementById('base_position_pct');
+
+            if (base_position_pct <= 0 || base_position_pct > 100) {
+                input.setCustomValidity('Base Position % must be between 0 and 100');
+                return false;
+            } else {
+                input.setCustomValidity('');
+                return true;
+            }
+        }
+
+        // Validate pyramiding
+        function validatePyramiding() {
+            const pyramiding = parseInt(document.getElementById('pyramiding').value) || 0;
+            const input = document.getElementById('pyramiding');
+
+            if (pyramiding < 1) {
+                input.setCustomValidity('Pyramiding must be at least 1');
+                return false;
+            } else {
+                input.setCustomValidity('');
+                return true;
+            }
+        }
+
+        // Add event listeners for real-time validation
+        ['rsi_ovs', 'rsi_ovb'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.addEventListener('input', validateRSI);
+                el.addEventListener('blur', validateRSI);
+            }
+        });
+
+        ['tp_long_pct', 'sl_long_pct', 'tp_short_pct', 'sl_short_pct'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.addEventListener('input', validateTPSL);
+                el.addEventListener('blur', validateTPSL);
+            }
+        });
+
+        const use_tp_sl = document.querySelector('input[name="use_tp_sl"]');
+        if (use_tp_sl) {
+            use_tp_sl.addEventListener('change', validateTPSL);
+        }
+
+        const base_position = document.getElementById('base_position_pct');
+        if (base_position) {
+            base_position.addEventListener('input', validateBasePosition);
+            base_position.addEventListener('blur', validateBasePosition);
+        }
+
+        const pyramiding = document.getElementById('pyramiding');
+        if (pyramiding) {
+            pyramiding.addEventListener('input', validatePyramiding);
+            pyramiding.addEventListener('blur', validatePyramiding);
+        }
+
+        // Form submit validation
+        form.addEventListener('submit', function(e) {
+            const valid = validateRSI() && validateTPSL() && validateBasePosition() && validatePyramiding();
+
+            if (!valid) {
+                e.preventDefault();
+                alert('Please fix validation errors before saving the strategy.');
+                return false;
+            }
+        });
+
+        // Run initial validation
+        validateRSI();
+        validateTPSL();
+        validateBasePosition();
+        validatePyramiding();
+    })();
+</script>
 {% endblock %}

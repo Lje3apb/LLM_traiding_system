@@ -546,7 +546,15 @@ async def ui_save_strategy(
     # CSRF validation (must be first to prevent processing invalid requests)
     _verify_csrf_token(request, csrf_token)
 
-    # Validate time_filter parameters
+    # Validate strategy parameters before processing
+    # RSI thresholds
+    if rsi_ovs >= rsi_ovb:
+        raise HTTPException(
+            status_code=400,
+            detail=f"RSI Oversold must be less than RSI Overbought. Got ovs={rsi_ovs}, ovb={rsi_ovb}"
+        )
+
+    # Time filter parameters
     if time_filter_enabled:
         if not (0 <= time_filter_start_hour <= 23):
             raise HTTPException(
@@ -558,6 +566,43 @@ async def ui_save_strategy(
                 status_code=400,
                 detail=f"time_filter_end_hour must be in [0, 23], got {time_filter_end_hour}"
             )
+
+    # TP/SL validation
+    if use_tp_sl:
+        if tp_long_pct <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"TP Long % must be greater than 0, got {tp_long_pct}"
+            )
+        if sl_long_pct <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"SL Long % must be greater than 0, got {sl_long_pct}"
+            )
+        if tp_short_pct <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"TP Short % must be greater than 0, got {tp_short_pct}"
+            )
+        if sl_short_pct <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"SL Short % must be greater than 0, got {sl_short_pct}"
+            )
+
+    # Pyramiding validation
+    if pyramiding < 1:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Pyramiding must be at least 1, got {pyramiding}"
+        )
+
+    # Base position validation
+    if base_position_pct <= 0 or base_position_pct > 100:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Base Position % must be between 0 and 100, got {base_position_pct}"
+        )
 
     # Use form name if different from URL name (for new strategies)
     actual_name = strategy_name if name == "new" else name
@@ -1514,6 +1559,56 @@ async def ui_recalculate_backtest(
             "time_filter_start_hour": int(params.get("time_filter_start_hour", config.get("time_filter_start_hour", 0))),
             "time_filter_end_hour": int(params.get("time_filter_end_hour", config.get("time_filter_end_hour", 23))),
         })
+
+        # Validate strategy parameters before running backtest
+        # RSI thresholds
+        rsi_ovs = config.get("rsi_ovs", 30)
+        rsi_ovb = config.get("rsi_ovb", 70)
+        if rsi_ovs >= rsi_ovb:
+            raise HTTPException(
+                status_code=400,
+                detail=f"RSI Oversold must be less than RSI Overbought. Got ovs={rsi_ovs}, ovb={rsi_ovb}"
+            )
+
+        # Time filter parameters
+        if config.get("time_filter_enabled", False):
+            time_filter_start_hour = config.get("time_filter_start_hour", 0)
+            time_filter_end_hour = config.get("time_filter_end_hour", 23)
+            if not (0 <= time_filter_start_hour <= 23):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"time_filter_start_hour must be in [0, 23], got {time_filter_start_hour}"
+                )
+            if not (0 <= time_filter_end_hour <= 23):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"time_filter_end_hour must be in [0, 23], got {time_filter_end_hour}"
+                )
+
+        # TP/SL validation
+        if config.get("use_tp_sl", False):
+            tp_long_pct = config.get("tp_long_pct", 2.0)
+            sl_long_pct = config.get("sl_long_pct", 2.0)
+            tp_short_pct = config.get("tp_short_pct", 2.0)
+            sl_short_pct = config.get("sl_short_pct", 2.0)
+            if tp_long_pct <= 0:
+                raise HTTPException(status_code=400, detail=f"TP Long % must be greater than 0, got {tp_long_pct}")
+            if sl_long_pct <= 0:
+                raise HTTPException(status_code=400, detail=f"SL Long % must be greater than 0, got {sl_long_pct}")
+            if tp_short_pct <= 0:
+                raise HTTPException(status_code=400, detail=f"TP Short % must be greater than 0, got {tp_short_pct}")
+            if sl_short_pct <= 0:
+                raise HTTPException(status_code=400, detail=f"SL Short % must be greater than 0, got {sl_short_pct}")
+
+        # Pyramiding validation
+        pyramiding = config.get("pyramiding", 1)
+        if pyramiding < 1:
+            raise HTTPException(status_code=400, detail=f"Pyramiding must be at least 1, got {pyramiding}")
+
+        # Base position validation
+        base_position_pct = config.get("base_position_pct", 10.0)
+        if base_position_pct <= 0 or base_position_pct > 100:
+            raise HTTPException(status_code=400, detail=f"Base Position % must be between 0 and 100, got {base_position_pct}")
 
         # Run backtest with new parameters
         summary = run_backtest_from_config_dict(
