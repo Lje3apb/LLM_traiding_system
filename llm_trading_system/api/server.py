@@ -563,6 +563,29 @@ async def stop_live_session(request: Request, session_id: str, user=Depends(requ
         )
 
 
+@app.post("/api/live/sessions/{session_id}/reset")
+@limiter.limit("20/minute")  # SESSION CONTROL: Explicit reset
+async def reset_live_session(request: Request, session_id: str, user=Depends(require_auth)) -> dict[str, Any]:
+    """Reset a paper trading session's account state.
+
+    Only paper sessions can be reset. The session must be stopped before
+    invoking this endpoint to avoid mutating running trades.
+    """
+
+    try:
+        manager = get_session_manager()
+        status = manager.reset_session(session_id)
+        return status
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to reset session: {sanitize_error_message(e)}"
+        )
+
+
 @app.get("/api/live/sessions/{session_id}/trades")
 @limiter.limit("1000/hour")  # STANDARD BUSINESS (READ): Get session trades
 async def get_live_session_trades(request: Request, session_id: str, limit: int = 100) -> dict[str, Any]:
