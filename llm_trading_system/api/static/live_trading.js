@@ -902,23 +902,6 @@ function initializeChart() {
         rightPriceScale: {
             borderColor: '#e0e0e0',
         },
-        handleScroll: {
-            // Disable left-click drag scrolling to avoid unwanted zoom/pan near chart edges
-            pressedMouseMove: false,
-            mouseWheel: true,
-            horzTouchDrag: true,
-            vertTouchDrag: true,
-        },
-        handleScale: {
-            mouseWheel: true,
-            pinch: true,
-            axisDoubleClickReset: true,
-            // Prevent scale adjustments when dragging inside the chart area or over axes with left click
-            axisPressedMouseMove: {
-                time: false,
-                price: false,
-            },
-        },
         timeScale: {
             borderColor: '#e0e0e0',
             timeVisible: true,
@@ -965,21 +948,24 @@ function initializeChart() {
     // The isSyncing flag prevents infinite loops when setting ranges
     let isSyncing = false;
 
-    priceChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
-        if (timeRange && !isSyncing) {
-            isSyncing = true;
-            volumeChartInstance.timeScale().setVisibleRange(timeRange);
-            isSyncing = false;
-        }
-    });
+	const priceTimeScale = priceChartInstance.timeScale();
+	const volumeTimeScale = volumeChartInstance.timeScale();
 
-    volumeChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
-        if (timeRange && !isSyncing) {
-            isSyncing = true;
-            priceChartInstance.timeScale().setVisibleRange(timeRange);
-            isSyncing = false;
-        }
-    });
+	priceTimeScale.subscribeVisibleLogicalRangeChange((logicalRange) => {
+		if (!logicalRange || isSyncing) return;
+
+		isSyncing = true;
+		volumeTimeScale.setVisibleLogicalRange(logicalRange);
+		isSyncing = false;
+	});
+
+	volumeTimeScale.subscribeVisibleLogicalRangeChange((logicalRange) => {
+		if (!logicalRange || isSyncing) return;
+
+		isSyncing = true;
+		priceTimeScale.setVisibleLogicalRange(logicalRange);
+		isSyncing = false;
+	});
 
     // Auto-resize - remove old listener first to prevent memory leak
     if (chartResizeHandler) {
