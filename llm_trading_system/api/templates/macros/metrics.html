@@ -1,0 +1,35 @@
+{# Jinja macros for metric components #}
+
+{#
+  Render a single metric card
+  @param label - Metric label text
+  @param value - Metric value (already formatted)
+  @param cls - Optional CSS class for value (e.g., 'positive', 'negative')
+#}
+{% macro metric(label, value, cls='') %}
+<div class="metric">
+    <span class="metric-label">{{ label }}</span>
+    <span class="metric-value {{ cls }}">{{ value }}</span>
+</div>
+{% endmacro %}
+
+{#
+  Helper to determine positive/negative class based on value
+  @param value - Numeric value to check
+  @returns 'positive' if >= 0, 'negative' otherwise
+#}
+{% macro pnl_class(value) %}{{ 'positive' if value >= 0 else 'negative' }}{% endmacro %}
+
+{#
+  Format percentage with sign
+  @param value - Numeric value
+  @param decimals - Number of decimal places (default 2)
+#}
+{% macro format_pct(value, decimals=2) %}{{ '%+.{}f'.format(decimals)|format(value) }}%{% endmacro %}
+
+{#
+  Format currency
+  @param value - Numeric value
+  @param decimals - Number of decimal places (default 2)
+#}
+{% macro format_usd(value, decimals=2) %}${{ '%.{}f'.format(decimals)|format(value) }}{% endmacro %}

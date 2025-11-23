@@ -1,0 +1,100 @@
+{# Jinja macros for form parameter inputs #}
+
+{#
+  Number input field
+  @param id - Input ID (and name)
+  @param label - Label text
+  @param min - Minimum value (optional)
+  @param max - Maximum value (optional)
+  @param step - Step value (optional)
+#}
+{% macro number_input(id, label, min=none, max=none, step=none) %}
+<div class="param-group">
+    <label for="{{ id }}">{{ label }}</label>
+    <input type="number"
+           id="{{ id }}"
+           name="{{ id|replace('param_', '') }}"
+           {% if min is not none %}min="{{ min }}"{% endif %}
+           {% if max is not none %}max="{{ max }}"{% endif %}
+           {% if step is not none %}step="{{ step }}"{% endif %}>
+</div>
+{% endmacro %}
+
+{#
+  Text input field
+  @param id - Input ID
+  @param label - Label text
+  @param placeholder - Placeholder text (optional)
+#}
+{% macro text_input(id, label, placeholder='') %}
+<div class="param-group">
+    <label for="{{ id }}">{{ label }}</label>
+    <input type="text"
+           id="{{ id }}"
+           name="{{ id|replace('param_', '') }}"
+           {% if placeholder %}placeholder="{{ placeholder }}"{% endif %}>
+</div>
+{% endmacro %}
+
+{#
+  Checkbox input field
+  @param id - Input ID
+  @param label - Label text
+#}
+{% macro checkbox(id, label) %}
+<div class="param-group">
+    <label>
+        <input type="checkbox" id="{{ id }}" name="{{ id|replace('param_', '') }}">
+        {{ label }}
+    </label>
+</div>
+{% endmacro %}
+
+{#
+  Select dropdown
+  @param id - Input ID
+  @param label - Label text
+  @param options - List of tuples [(value, text), ...]
+#}
+{% macro select(id, label, options) %}
+<div class="param-group">
+    <label for="{{ id }}">{{ label }}</label>
+    <select id="{{ id }}" name="{{ id|replace('param_', '') }}">
+        {% for value, text in options %}
+        <option value="{{ value }}">{{ text }}</option>
+        {% endfor %}
+    </select>
+</div>
+{% endmacro %}
+
+{#
+  Textarea field
+  @param id - Input ID
+  @param label - Label text
+  @param placeholder - Placeholder text (optional)
+  @param help - Help text (optional)
+#}
+{% macro textarea(id, label, placeholder='', help='') %}
+<div class="param-group">
+    <label for="{{ id }}">{{ label }}</label>
+    <textarea id="{{ id }}"
+              name="{{ id|replace('param_', '') }}"
+              {% if placeholder %}placeholder="{{ placeholder }}"{% endif %}></textarea>
+    {% if help %}
+    <small style="color: #6b7280; font-size: 0.75rem; margin-top: 0.25rem;">{{ help }}</small>
+    {% endif %}
+</div>
+{% endmacro %}
+
+{#
+  Modal section with title
+  @param title - Section title
+#}
+{% macro section(title) %}
+<div class="modal-section">
+    <h4>{{ title }}</h4>
+    <div class="param-grid">
+        {{ caller() }}
+    </div>
+</div>
+{% endmacro %}
