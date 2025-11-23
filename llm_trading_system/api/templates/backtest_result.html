@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% from "macros/metrics.html" import metric, pnl_class %}
+{% from "macros/params.html" import number_input, text_input, checkbox, select, textarea %}
 
 {% block title %}Backtest Results - {{ name }} - LLM Trading System{% endblock %}
 
@@ -22,48 +24,15 @@
 <div class="results-summary card">
     <h3>Summary</h3>
     <div class="metrics-grid">
-        <div class="metric">
-            <span class="metric-label">Symbol</span>
-            <span class="metric-value">{{ summary.symbol }}</span>
-        </div>
-        <div class="metric">
-            <span class="metric-label">Bars</span>
-            <span class="metric-value">{{ summary.bars }}</span>
-        </div>
-        <div class="metric">
-            <span class="metric-label">Trades</span>
-            <span class="metric-value">{{ summary.trades }}</span>
-        </div>
-        <div class="metric">
-            <span class="metric-label">P&L</span>
-            <span class="metric-value {% if summary.pnl_pct >= 0 %}positive{% else %}negative{% endif %}">
-                {{ "+" if summary.pnl_pct >= 0 else "" }}{{ "%.2f"|format(summary.pnl_pct) }}%
-            </span>
-        </div>
-        <div class="metric">
-            <span class="metric-label">P&L (Absolute)</span>
-            <span class="metric-value {% if summary.pnl_abs >= 0 %}positive{% else %}negative{% endif %}">
-                ${{ "%.2f"|format(summary.pnl_abs) }}
-            </span>
-        </div>
-        <div class="metric">
-            <span class="metric-label">Max Drawdown</span>
-            <span class="metric-value negative">{{ "%.2f"|format(summary.max_drawdown) }}%</span>
-        </div>
-        <div class="metric">
-            <span class="metric-label">Win Rate</span>
-            <span class="metric-value">{{ "%.1f"|format(summary.win_rate) }}%</span>
-        </div>
-        <div class="metric">
-            <span class="metric-label">Avg Trade P&L</span>
-            <span class="metric-value {% if summary.avg_trade_pnl >= 0 %}positive{% else %}negative{% endif %}">
-                ${{ "%.2f"|format(summary.avg_trade_pnl) }}
-            </span>
-        </div>
-        <div class="metric">
-            <span class="metric-label">Final Equity</span>
-            <span class="metric-value">${{ "%.2f"|format(summary.final_equity) }}</span>
-        </div>
+        {{ metric("Symbol", summary.symbol) }}
+        {{ metric("Bars", summary.bars) }}
+        {{ metric("Trades", summary.trades) }}
+        {{ metric("P&L", "%+.2f%%"|format(summary.pnl_pct), pnl_class(summary.pnl_pct)) }}
+        {{ metric("P&L (Absolute)", "$%.2f"|format(summary.pnl_abs), pnl_class(summary.pnl_abs)) }}
+        {{ metric("Max Drawdown", "%.2f%%"|format(summary.max_drawdown), "negative") }}
+        {{ metric("Win Rate", "%.1f%%"|format(summary.win_rate)) }}
+        {{ metric("Avg Trade P&L", "$%.2f"|format(summary.avg_trade_pnl), pnl_class(summary.avg_trade_pnl)) }}
+        {{ metric("Final Equity", "$%.2f"|format(summary.final_equity)) }}
     </div>
 </div>
 
@@ -179,26 +148,9 @@
                 <div class="modal-section">
                     <h4>Strategy Type & Mode</h4>
                     <div class="param-grid">
-                        <div class="param-group">
-                            <label for="param_strategy_type">Strategy Type</label>
-                            <select id="param_strategy_type" name="strategy_type">
-                                <option value="indicator">Indicator</option>
-                                <option value="llm">LLM</option>
-                                <option value="hybrid">Hybrid</option>
-                            </select>
-                        </div>
-                        <div class="param-group">
-                            <label for="param_mode">Mode</label>
-                            <select id="param_mode" name="mode">
-                                <option value="quant_only">Quant Only</option>
-                                <option value="llm_only">LLM Only</option>
-                                <option value="hybrid">Hybrid</option>
-                            </select>
-                        </div>
-                        <div class="param-group">
-                            <label for="param_symbol">Symbol</label>
-                            <input type="text" id="param_symbol" name="symbol" placeholder="BTCUSDT">
-                        </div>
+                        {{ select("param_strategy_type", "Strategy Type", [("indicator", "Indicator"), ("llm", "LLM"), ("hybrid", "Hybrid")]) }}
+                        {{ select("param_mode", "Mode", [("quant_only", "Quant Only"), ("llm_only", "LLM Only"), ("hybrid", "Hybrid")]) }}
+                        {{ text_input("param_symbol", "Symbol", "BTCUSDT") }}
                     </div>
                 </div>
 
@@ -206,50 +158,17 @@
                 <div class="modal-section">
                     <h4>Indicator Parameters</h4>
                     <div class="param-grid">
-                        <div class="param-group">
-                            <label for="param_rsi_len">RSI Length</label>
-                            <input type="number" id="param_rsi_len" name="rsi_len" min="1" step="1">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_rsi_ovb">RSI Overbought</label>
-                            <input type="number" id="param_rsi_ovb" name="rsi_ovb" min="0" max="100" step="1">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_rsi_ovs">RSI Oversold</label>
-                            <input type="number" id="param_rsi_ovs" name="rsi_ovs" min="0" max="100" step="1">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_bb_len">BB Length</label>
-                            <input type="number" id="param_bb_len" name="bb_len" min="1" step="1">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_bb_mult">BB Multiplier</label>
-                            <input type="number" id="param_bb_mult" name="bb_mult" min="0" step="0.1">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_ema_fast_len">EMA Fast Length</label>
-                            <input type="number" id="param_ema_fast_len" name="ema_fast_len" min="1" step="1">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_ema_slow_len">EMA Slow Length</label>
-                            <input type="number" id="param_ema_slow_len" name="ema_slow_len" min="1" step="1">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_atr_len">ATR Length</label>
-                            <input type="number" id="param_atr_len" name="atr_len" min="1" step="1">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_adx_len">ADX Length</label>
-                            <input type="number" id="param_adx_len" name="adx_len" min="1" step="1">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_vol_ma_len">Volume MA Length</label>
-                            <input type="number" id="param_vol_ma_len" name="vol_ma_len" min="1" step="1">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_vol_mult">Volume Multiplier</label>
-                            <input type="number" id="param_vol_mult" name="vol_mult" min="0" step="0.1">
-                        </div>
+                        {{ number_input("param_rsi_len", "RSI Length", 1, none, 1) }}
+                        {{ number_input("param_rsi_ovb", "RSI Overbought", 0, 100, 1) }}
+                        {{ number_input("param_rsi_ovs", "RSI Oversold", 0, 100, 1) }}
+                        {{ number_input("param_bb_len", "BB Length", 1, none, 1) }}
+                        {{ number_input("param_bb_mult", "BB Multiplier", 0, none, 0.1) }}
+                        {{ number_input("param_ema_fast_len", "EMA Fast Length", 1, none, 1) }}
+                        {{ number_input("param_ema_slow_len", "EMA Slow Length", 1, none, 1) }}
+                        {{ number_input("param_atr_len", "ATR Length", 1, none, 1) }}
+                        {{ number_input("param_adx_len", "ADX Length", 1, none, 1) }}
+                        {{ number_input("param_vol_ma_len", "Volume MA Length", 1, none, 1) }}
+                        {{ number_input("param_vol_mult", "Volume Multiplier", 0, none, 0.1) }}
                     </div>
                 </div>
 
@@ -257,41 +176,14 @@
                 <div class="modal-section">
                     <h4>Position & Risk Management</h4>
                     <div class="param-grid">
-                        <div class="param-group">
-                            <label for="param_base_position_pct">Base Position %</label>
-                            <input type="number" id="param_base_position_pct" name="base_position_pct" min="0" max="100" step="0.1">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_pyramiding">Pyramiding</label>
-                            <input type="number" id="param_pyramiding" name="pyramiding" min="1" step="1">
-                        </div>
-                        <div class="param-group">
-                            <label>
-                                <input type="checkbox" id="param_allow_long" name="allow_long">
-                                Allow Long
-                            </label>
-                        </div>
-                        <div class="param-group">
-                            <label>
-                                <input type="checkbox" id="param_allow_short" name="allow_short">
-                                Allow Short
-                            </label>
-                        </div>
-                        <div class="param-group">
-                            <label>
-                                <input type="checkbox" id="param_use_martingale" name="use_martingale">
-                                Use Martingale
-                            </label>
-                        </div>
+                        {{ number_input("param_base_position_pct", "Base Position %", 0, 100, 0.1) }}
+                        {{ number_input("param_pyramiding", "Pyramiding", 1, none, 1) }}
+                        {{ checkbox("param_allow_long", "Allow Long") }}
+                        {{ checkbox("param_allow_short", "Allow Short") }}
+                        {{ checkbox("param_use_martingale", "Use Martingale") }}
                         <div id="param_martingale_settings" style="display: none;">
-                            <div class="param-group">
-                                <label for="param_martingale_mult">Martingale Multiplier</label>
-                                <input type="number" id="param_martingale_mult" name="martingale_mult" min="1" step="0.1">
-                            </div>
-                            <div class="param-group">
-                                <label for="param_max_position_size">Max Position Size</label>
-                                <input type="number" id="param_max_position_size" name="max_position_size" min="0.01" max="1.0" step="0.01">
-                            </div>
+                            {{ number_input("param_martingale_mult", "Martingale Multiplier", 1, none, 0.1) }}
+                            {{ number_input("param_max_position_size", "Max Position Size", 0.01, 1.0, 0.01) }}
                         </div>
                     </div>
                 </div>
@@ -300,30 +192,13 @@
                 <div class="modal-section">
                     <h4>TP/SL Settings</h4>
                     <div class="param-grid">
-                        <div class="param-group">
-                            <label>
-                                <input type="checkbox" id="param_use_tp_sl" name="use_tp_sl">
-                                Use TP/SL
-                            </label>
-                        </div>
+                        {{ checkbox("param_use_tp_sl", "Use TP/SL") }}
                         <div id="param_tp_sl_settings" style="display: none; grid-column: 1 / -1;">
                             <div class="param-grid">
-                                <div class="param-group">
-                                    <label for="param_tp_long_pct">TP Long %</label>
-                                    <input type="number" id="param_tp_long_pct" name="tp_long_pct" min="0" step="0.1">
-                                </div>
-                                <div class="param-group">
-                                    <label for="param_sl_long_pct">SL Long %</label>
-                                    <input type="number" id="param_sl_long_pct" name="sl_long_pct" min="0" step="0.1">
-                                </div>
-                                <div class="param-group">
-                                    <label for="param_tp_short_pct">TP Short %</label>
-                                    <input type="number" id="param_tp_short_pct" name="tp_short_pct" min="0" step="0.1">
-                                </div>
-                                <div class="param-group">
-                                    <label for="param_sl_short_pct">SL Short %</label>
-                                    <input type="number" id="param_sl_short_pct" name="sl_short_pct" min="0" step="0.1">
-                                </div>
+                                {{ number_input("param_tp_long_pct", "TP Long %", 0, none, 0.1) }}
+                                {{ number_input("param_sl_long_pct", "SL Long %", 0, none, 0.1) }}
+                                {{ number_input("param_tp_short_pct", "TP Short %", 0, none, 0.1) }}
+                                {{ number_input("param_sl_short_pct", "SL Short %", 0, none, 0.1) }}
                             </div>
                         </div>
                     </div>
@@ -333,22 +208,11 @@
                 <div class="modal-section">
                     <h4>Time Filter</h4>
                     <div class="param-grid">
-                        <div class="param-group">
-                            <label>
-                                <input type="checkbox" id="param_time_filter_enabled" name="time_filter_enabled">
-                                Enable Time Filter
-                            </label>
-                        </div>
+                        {{ checkbox("param_time_filter_enabled", "Enable Time Filter") }}
                         <div id="param_time_filter_settings" style="display: none; grid-column: 1 / -1;">
                             <div class="param-grid">
-                                <div class="param-group">
-                                    <label for="param_time_filter_start_hour">Start Hour (UTC)</label>
-                                    <input type="number" id="param_time_filter_start_hour" name="time_filter_start_hour" min="0" max="23" step="1">
-                                </div>
-                                <div class="param-group">
-                                    <label for="param_time_filter_end_hour">End Hour (UTC)</label>
-                                    <input type="number" id="param_time_filter_end_hour" name="time_filter_end_hour" min="0" max="23" step="1">
-                                </div>
+                                {{ number_input("param_time_filter_start_hour", "Start Hour (UTC)", 0, 23, 1) }}
+                                {{ number_input("param_time_filter_end_hour", "End Hour (UTC)", 0, 23, 1) }}
                             </div>
                         </div>
                     </div>
@@ -358,37 +222,18 @@
                 <div class="modal-section">
                     <h4>LLM Parameters</h4>
                     <div class="param-grid">
-                        <div class="param-group">
-                            <label for="param_k_max">K Max</label>
-                            <input type="number" id="param_k_max" name="k_max" min="0" step="0.1">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_llm_horizon_hours">Horizon Hours</label>
-                            <input type="number" id="param_llm_horizon_hours" name="llm_horizon_hours" min="1" step="1">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_llm_min_prob_edge">Min Prob Edge</label>
-                            <input type="number" id="param_llm_min_prob_edge" name="llm_min_prob_edge" min="0" max="1" step="0.01">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_llm_min_trend_strength">Min Trend Strength</label>
-                            <input type="number" id="param_llm_min_trend_strength" name="llm_min_trend_strength" min="0" max="1" step="0.01">
-                        </div>
-                        <div class="param-group">
-                            <label for="param_llm_refresh_interval_bars">Refresh Interval (bars)</label>
-                            <input type="number" id="param_llm_refresh_interval_bars" name="llm_refresh_interval_bars" min="1" step="1">
-                        </div>
+                        {{ number_input("param_k_max", "K Max", 0, none, 0.1) }}
+                        {{ number_input("param_llm_horizon_hours", "Horizon Hours", 1, none, 1) }}
+                        {{ number_input("param_llm_min_prob_edge", "Min Prob Edge", 0, 1, 0.01) }}
+                        {{ number_input("param_llm_min_trend_strength", "Min Trend Strength", 0, 1, 0.01) }}
+                        {{ number_input("param_llm_refresh_interval_bars", "Refresh Interval (bars)", 1, none, 1) }}
                     </div>
                 </div>
 
                 <!-- Trading Rules -->
                 <div class="modal-section">
                     <h4>Trading Rules (JSON Format)</h4>
-                    <div class="param-group">
-                        <label for="param_rules">Rules JSON</label>
-                        <textarea id="param_rules" name="rules" placeholder='{"long_entry": [], "short_entry": [], "long_exit": [], "short_exit": []}'></textarea>
-                        <small style="color: #6b7280; font-size: 0.75rem; margin-top: 0.25rem;">Enter valid JSON format for trading rules</small>
-                    </div>
+                    {{ textarea("param_rules", "Rules JSON", '{"long_entry": [], "short_entry": [], "long_exit": [], "short_exit": []}', "Enter valid JSON format for trading rules") }}
                 </div>
             </form>
         </div>

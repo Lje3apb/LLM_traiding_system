@@ -81,6 +81,82 @@ const strategyName = config.strategyName || '';
 const strategySymbol = config.symbol || '';
 
 // =============================================================================
+// Chart Helper Functions
+// =============================================================================
+
+/** Common chart options */
+const CHART_OPTIONS = {
+    layout: {
+        background: { color: '#ffffff' },
+        textColor: '#333',
+    },
+    grid: {
+        vertLines: { color: '#f0f0f0' },
+        horzLines: { color: '#f0f0f0' },
+    },
+    crosshair: {
+        mode: LightweightCharts.CrosshairMode.Normal,
+    },
+    rightPriceScale: {
+        borderColor: '#e0e0e0',
+    },
+    timeScale: {
+        borderColor: '#e0e0e0',
+        timeVisible: true,
+        secondsVisible: false,
+    },
+};
+
+/**
+ * Create a chart with common options
+ * @param {HTMLElement} container - Container element
+ * @param {number} height - Chart height
+ * @returns {Object} - Chart instance
+ */
+function createBaseChart(container, height) {
+    return LightweightCharts.createChart(container, {
+        width: container.clientWidth,
+        height,
+        ...CHART_OPTIONS,
+    });
+}
+
+/**
+ * Synchronize time scales between two charts
+ * @param {Object} chartA - First chart
+ * @param {Object} chartB - Second chart
+ */
+function syncTimeScales(chartA, chartB) {
+    let isSyncing = false;
+    const aScale = chartA.timeScale();
+    const bScale = chartB.timeScale();
+
+    aScale.subscribeVisibleTimeRangeChange((range) => {
+        if (!range || isSyncing) return;
+        isSyncing = true;
+        bScale.setVisibleRange(range);
+        isSyncing = false;
+    });
+
+    bScale.subscribeVisibleTimeRangeChange((range) => {
+        if (!range || isSyncing) return;
+        isSyncing = true;
+        aScale.setVisibleRange(range);
+        isSyncing = false;
+    });
+}
+
+/**
+ * Safely remove chart instance
+ * @param {Object} chart - Chart instance to remove
+ */
+function removeChart(chart) {
+    if (chart) {
+        try { chart.remove(); } catch (e) { console.warn('Error removing chart:', e); }
+    }
+}
+
+// =============================================================================
 // Chart Functions
 // =============================================================================
 
@@ -117,51 +193,21 @@ function initializeChart(ohlcv, trades) {
     const volumeContainer = document.getElementById('volume-chart');
 
     // Remove existing chart instances
-    if (priceChartInstance) {
-        try { priceChartInstance.remove(); } catch (e) { console.warn('Error removing price chart:', e); }
-        priceChartInstance = null;
-        candlestickSeries = null;
-    }
-
-    if (volumeChartInstance) {
-        try { volumeChartInstance.remove(); } catch (e) { console.warn('Error removing volume chart:', e); }
-        volumeChartInstance = null;
-        volumeSeries = null;
-    }
+    removeChart(priceChartInstance);
+    removeChart(volumeChartInstance);
+    priceChartInstance = null;
+    volumeChartInstance = null;
+    candlestickSeries = null;
+    volumeSeries = null;
 
     priceContainer.innerHTML = '';
     volumeContainer.innerHTML = '';
 
-    // Common chart options
-    const commonOptions = {
-        layout: {
-            background: { color: '#ffffff' },
-            textColor: '#333',
-        },
-        grid: {
-            vertLines: { color: '#f0f0f0' },
-            horzLines: { color: '#f0f0f0' },
-        },
-        crosshair: {
-            mode: LightweightCharts.CrosshairMode.Normal,
-        },
-        rightPriceScale: {
-            borderColor: '#e0e0e0',
-        },
-        timeScale: {
-            borderColor: '#e0e0e0',
-            timeVisible: true,
-            secondsVisible: false,
-        },
-    };
+    // Create charts using helper
+    priceChartInstance = createBaseChart(priceContainer, 350);
+    volumeChartInstance = createBaseChart(volumeContainer, 150);
 
-    // Create price chart
-    priceChartInstance = LightweightCharts.createChart(priceContainer, {
-        width: priceContainer.clientWidth,
-        height: 350,
-        ...commonOptions,
-    });
-
+    // Add candlestick series
     candlestickSeries = priceChartInstance.addCandlestickSeries({
         upColor: '#10b981',
         downColor: '#ef4444',
@@ -170,59 +216,32 @@ function initializeChart(ohlcv, trades) {
         wickUpColor: '#10b981',
         wickDownColor: '#ef4444',
     });
-
     candlestickSeries.setData(ohlcv);
 
-    // Create volume chart
-    volumeChartInstance = LightweightCharts.createChart(volumeContainer, {
-        width: volumeContainer.clientWidth,
-        height: 150,
-        ...commonOptions,
-    });
-
+    // Add volume series
     volumeSeries = volumeChartInstance.addHistogramSeries({
         color: '#9ca3af',
         priceFormat: { type: 'volume' },
     });
-
-    const volumeData = ohlcv.map(d => ({
+    volumeSeries.setData(ohlcv.map(d => ({
         time: d.time,
         value: d.volume || 0,
         color: d.close >= d.open ? 'rgba(16, 185, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)'
-    }));
-    volumeSeries.setData(volumeData);
+    })));
 
     // Add trade markers
     updateTradeMarkers(trades);
 
-    // Synchronize time scales
-    let isSyncing = false;
+    // Synchronize time scales using helper
+    syncTimeScales(priceChartInstance, volumeChartInstance);
 
-	const priceTimeScale = priceChartInstance.timeScale();
-	const volumeTimeScale = volumeChartInstance.timeScale();
-
-	priceTimeScale.subscribeVisibleLogicalRangeChange((logicalRange) => {
-		if (!logicalRange || isSyncing) return;
-
-		isSyncing = true;
-		volumeTimeScale.setVisibleLogicalRange(logicalRange);
-		isSyncing = false;
-	});
-
-	volumeTimeScale.subscribeVisibleLogicalRangeChange((logicalRange) => {
-		if (!logicalRange || isSyncing) return;
-
-		isSyncing = true;
-		priceTimeScale.setVisibleLogicalRange(logicalRange);
-		isSyncing = false;
-	});
-
-    // Auto-resize
+    // Auto-resize handler
     window.addEventListener('resize', () => {
-        priceChartInstance.applyOptions({ width: priceContainer.clientWidth });
-        volumeChartInstance.applyOptions({ width: volumeContainer.clientWidth });
+        priceChartInstance?.applyOptions({ width: priceContainer.clientWidth });
+        volumeChartInstance?.applyOptions({ width: volumeContainer.clientWidth });
     });
 
+    // Fit content
     priceChartInstance.timeScale().fitContent();
     volumeChartInstance.timeScale().fitContent();
 }
@@ -759,42 +778,19 @@ function setupModalEventListeners() {
         document.getElementById(id)?.addEventListener('change', toggleModalCheckboxSettings);
     });
 
-    // Recalculate button
-    recalculateBtn?.addEventListener('click', async () => {
+    /**
+     * Recalculate backtest and optionally save parameters
+     * @param {Object} options - { saveAfter: boolean }
+     */
+    async function recalcAndMaybeSave({ saveAfter = false } = {}) {
         try {
             const params = collectFormParams();
+
             recalculateBtn.disabled = true;
             saveParamsBtn.disabled = true;
             setModalStatus('Recalculating backtest...', 'loading');
-
-            const data = await fetchJson(`/ui/strategies/${strategyName}/recalculate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ csrf_token: getCsrfToken(), params })
-            }, { expectSuccess: true });
-
-            updateSummary(data.summary);
-            await loadChartData();
-            setModalStatus('Backtest recalculated successfully!', 'success');
-            currentParams = params;
-        } catch (error) {
-            console.error('Recalculate failed:', error);
-            setModalStatus('Error: ' + error.message, 'error');
-        } finally {
-            recalculateBtn.disabled = false;
-            saveParamsBtn.disabled = false;
-        }
-    });
-
-    // Save button
-    saveParamsBtn?.addEventListener('click', async () => {
-        try {
-            const params = collectFormParams();
-            saveParamsBtn.disabled = true;
-            recalculateBtn.disabled = true;
 
             // Step 1: Recalculate
-            setModalStatus('Recalculating backtest...', 'loading');
             const recalcData = await fetchJson(`/ui/strategies/${strategyName}/recalculate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -807,25 +803,34 @@ function setupModalEventListeners() {
             setModalStatus('Updating chart...', 'loading');
             await loadChartData();
 
-            // Step 3: Save to disk
-            setModalStatus('Saving parameters...', 'loading');
-            await fetchJson(`/ui/strategies/${strategyName}/save-params`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ csrf_token: getCsrfToken(), params })
-            }, { expectSuccess: true });
+            // Step 3: Optionally save to disk
+            if (saveAfter) {
+                setModalStatus('Saving parameters...', 'loading');
+                await fetchJson(`/ui/strategies/${strategyName}/save-params`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ csrf_token: getCsrfToken(), params })
+                }, { expectSuccess: true });
+
+                setModalStatus('Parameters saved and backtest recalculated successfully!', 'success');
+                setTimeout(closeModal, 1500);
+            } else {
+                setModalStatus('Backtest recalculated successfully!', 'success');
+            }
 
             currentParams = params;
-            setModalStatus('Parameters saved and backtest recalculated successfully!', 'success');
-            setTimeout(closeModal, 1500);
         } catch (error) {
-            console.error('Save failed:', error);
+            console.error(saveAfter ? 'Save failed:' : 'Recalculate failed:', error);
             setModalStatus('Error: ' + error.message, 'error');
         } finally {
-            saveParamsBtn.disabled = false;
             recalculateBtn.disabled = false;
+            saveParamsBtn.disabled = false;
         }
-    });
+    }
+
+    // Recalculate and Save buttons use the same function
+    recalculateBtn?.addEventListener('click', () => recalcAndMaybeSave({ saveAfter: false }));
+    saveParamsBtn?.addEventListener('click', () => recalcAndMaybeSave({ saveAfter: true }));
 }
 
 // =============================================================================
