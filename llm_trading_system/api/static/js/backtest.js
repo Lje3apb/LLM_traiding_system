@@ -198,21 +198,24 @@ function initializeChart(ohlcv, trades) {
     // Synchronize time scales
     let isSyncing = false;
 
-    priceChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
-        if (timeRange && !isSyncing) {
-            isSyncing = true;
-            volumeChartInstance.timeScale().setVisibleRange(timeRange);
-            isSyncing = false;
-        }
-    });
+	const priceTimeScale = priceChartInstance.timeScale();
+	const volumeTimeScale = volumeChartInstance.timeScale();
 
-    volumeChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
-        if (timeRange && !isSyncing) {
-            isSyncing = true;
-            priceChartInstance.timeScale().setVisibleRange(timeRange);
-            isSyncing = false;
-        }
-    });
+	priceTimeScale.subscribeVisibleLogicalRangeChange((logicalRange) => {
+		if (!logicalRange || isSyncing) return;
+
+		isSyncing = true;
+		volumeTimeScale.setVisibleLogicalRange(logicalRange);
+		isSyncing = false;
+	});
+
+	volumeTimeScale.subscribeVisibleLogicalRangeChange((logicalRange) => {
+		if (!logicalRange || isSyncing) return;
+
+		isSyncing = true;
+		priceTimeScale.setVisibleLogicalRange(logicalRange);
+		isSyncing = false;
+	});
 
     // Auto-resize
     window.addEventListener('resize', () => {
