@@ -3,6 +3,9 @@
  * Manages real-time trading session, WebSocket updates, and chart visualization
  */
 
+// VERSION CHECK: Clean version loaded - no mouse blocking code
+console.log('✅ Live Trading JS loaded - VERSION: becfc48-clean (no mouse blocking)');
+
 // ============================================================================
 // Global State
 // ============================================================================
