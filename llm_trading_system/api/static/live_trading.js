@@ -3,6 +3,9 @@
  * Manages real-time trading session, WebSocket updates, and chart visualization
  */
 
+// VERSION CHECK: Clean version loaded - no mouse blocking code
+console.log('✅ Live Trading JS loaded - VERSION: becfc48-clean (no mouse blocking)');
+
 // ============================================================================
 // Global State
 // ============================================================================
@@ -963,39 +966,17 @@ function initializeChart() {
     let isSyncing = false;
 
     priceChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
-        // Validate timeRange has valid numeric from/to values and proper range
-        if (!isSyncing &&
-            timeRange &&
-            typeof timeRange.from === 'number' &&
-            typeof timeRange.to === 'number' &&
-            isFinite(timeRange.from) &&
-            isFinite(timeRange.to) &&
-            timeRange.from < timeRange.to) {  // Ensure valid range (from must be less than to)
+        if (timeRange && !isSyncing) {
             isSyncing = true;
-            try {
-                volumeChartInstance.timeScale().setVisibleRange(timeRange);
-            } catch (e) {
-                console.warn('Failed to sync time range to volume chart:', e);
-            }
+            volumeChartInstance.timeScale().setVisibleRange(timeRange);
             isSyncing = false;
         }
     });
 
     volumeChartInstance.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
-        // Validate timeRange has valid numeric from/to values and proper range
-        if (!isSyncing &&
-            timeRange &&
-            typeof timeRange.from === 'number' &&
-            typeof timeRange.to === 'number' &&
-            isFinite(timeRange.from) &&
-            isFinite(timeRange.to) &&
-            timeRange.from < timeRange.to) {  // Ensure valid range (from must be less than to)
+        if (timeRange && !isSyncing) {
             isSyncing = true;
-            try {
-                priceChartInstance.timeScale().setVisibleRange(timeRange);
-            } catch (e) {
-                console.warn('Failed to sync time range to price chart:', e);
-            }
+            priceChartInstance.timeScale().setVisibleRange(timeRange);
             isSyncing = false;
         }
     });
